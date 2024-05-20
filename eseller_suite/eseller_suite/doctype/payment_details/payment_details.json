@@ -1,0 +1,92 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-05-14 11:20:10.278809",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "date",
+  "transaction_type",
+  "order_id",
+  "product_details",
+  "column_break_hvaa",
+  "total_product_charges",
+  "total_promotional_rebates",
+  "amazon_fees",
+  "other",
+  "total_inr"
+ ],
+ "fields": [
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Date"
+  },
+  {
+   "fieldname": "transaction_type",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Transaction Type"
+  },
+  {
+   "fieldname": "order_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Order ID"
+  },
+  {
+   "fieldname": "product_details",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Product Details"
+  },
+  {
+   "fieldname": "column_break_hvaa",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_product_charges",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Product Charges"
+  },
+  {
+   "fieldname": "total_promotional_rebates",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Promotional Rebates"
+  },
+  {
+   "fieldname": "amazon_fees",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amazon Fees"
+  },
+  {
+   "fieldname": "other",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Other"
+  },
+  {
+   "fieldname": "total_inr",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total (INR)"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2024-05-14 11:20:10.278809",
+ "modified_by": "Administrator",
+ "module": "eSeller Suite",
+ "name": "Payment Details",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
