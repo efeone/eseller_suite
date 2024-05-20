@@ -1,0 +1,59 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-05-14 11:21:59.322929",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "import_file_section",
+  "attach",
+  "payment_details_section",
+  "payment_details"
+ ],
+ "fields": [
+  {
+   "fieldname": "import_file_section",
+   "fieldtype": "Section Break",
+   "label": "Import File"
+  },
+  {
+   "fieldname": "attach",
+   "fieldtype": "Attach",
+   "label": "Attach"
+  },
+  {
+   "fieldname": "payment_details_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Details"
+  },
+  {
+   "fieldname": "payment_details",
+   "fieldtype": "Table",
+   "label": "Payment Details",
+   "options": "Payment Details"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2024-05-14 11:41:55.440976",
+ "modified_by": "Administrator",
+ "module": "eSeller Suite",
+ "name": "Amazon Payment Extractor",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
