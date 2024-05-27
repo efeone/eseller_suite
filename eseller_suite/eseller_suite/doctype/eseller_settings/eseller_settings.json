@@ -1,0 +1,76 @@
+{
+ "actions": [],
+ "allow_copy": 1,
+ "creation": "2024-05-27 13:08:28.381450",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "defaults_section",
+  "default_amazon_customer",
+  "flipkart_defaults_section",
+  "default_flipkart_customer",
+  "column_break_qzmo",
+  "default_flipkart_supplier"
+ ],
+ "fields": [
+  {
+   "fieldname": "defaults_section",
+   "fieldtype": "Section Break",
+   "label": "Amazon Defaults"
+  },
+  {
+   "description": "This Customer will be used while creating Sales Invoices from Amazon Payment Extractor",
+   "fieldname": "default_amazon_customer",
+   "fieldtype": "Link",
+   "label": "Default Amazon Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "flipkart_defaults_section",
+   "fieldtype": "Section Break",
+   "label": "Flipkart Defaults"
+  },
+  {
+   "description": "This Customer will be used while creating Sales Invoices from Flipkart Payment Extractor",
+   "fieldname": "default_flipkart_customer",
+   "fieldtype": "Link",
+   "label": "Default Flipkart Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "column_break_qzmo",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "This Supplier will be used while creating Purchase Invoices from Flipkart Payment Extractor",
+   "fieldname": "default_flipkart_supplier",
+   "fieldtype": "Link",
+   "label": "Default Flipkart Supplier",
+   "options": "Supplier"
+  }
+ ],
+ "hide_toolbar": 1,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2024-05-27 13:18:54.006669",
+ "modified_by": "Administrator",
+ "module": "eSeller Suite",
+ "name": "eSeller Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
