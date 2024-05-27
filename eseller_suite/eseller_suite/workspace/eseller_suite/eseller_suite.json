@@ -1,0 +1,45 @@
+{
+ "charts": [],
+ "content": "[{\"id\":\"YeQg3DXhTl\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">eSeller Suite</span>\",\"col\":12}},{\"id\":\"56KcdtySH_\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"eSeller Settings\",\"col\":3}},{\"id\":\"fgLuQOKLke\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Amazon Payment Extractor\",\"col\":3}}]",
+ "creation": "2024-05-27 13:20:31.068773",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "retail",
+ "idx": 0,
+ "indicator_color": "blue",
+ "is_hidden": 0,
+ "label": "eSeller Suite",
+ "links": [],
+ "modified": "2024-05-27 13:21:47.877410",
+ "modified_by": "Administrator",
+ "module": "eSeller Suite",
+ "name": "eSeller Suite",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "Home",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [],
+ "sequence_id": 2.0,
+ "shortcuts": [
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "eSeller Settings",
+   "link_to": "eSeller Settings",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Amazon Payment Extractor",
+   "link_to": "Amazon Payment Extractor",
+   "stats_filter": "[]",
+   "type": "DocType"
+  }
+ ],
+ "title": "eSeller Suite"
+}
