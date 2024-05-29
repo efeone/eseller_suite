@@ -63,4 +63,205 @@ class AmazonPaymentExtractor(Document):
                 value = self.parse_date(value)
             payment_detail[internal_key] = value
 
-        self.append("payment_details", payment_detail)
+        if not any(
+            pd.transaction_type == payment_detail["transaction_type"] and
+            pd.order_id == payment_detail["order_id"] and
+            pd.product_details == payment_detail["product_details"]
+            for pd in self.payment_details
+        ):
+            self.append("payment_details", payment_detail)
+
+@frappe.whitelist()
+def create_sales_invoices(docname):
+    amazon_payment_extractor = frappe.get_doc("Amazon Payment Extractor", docname)
+    sales_invoice_exist = frappe.db.exists(
+        "Sales Invoice", {"amazon_payment_extractor": amazon_payment_extractor.name}
+    )
+    customer = frappe.get_single("eSeller Settings").get("default_amazon_customer")
+
+    if not sales_invoice_exist:
+        sales_invoice_count = 0
+
+        for payment in amazon_payment_extractor.payment_details:
+            if payment.transaction_type == "Order Payment":
+                new_sales_invoice = frappe.new_doc("Sales Invoice")
+                new_sales_invoice.amazon_payment_extractor = amazon_payment_extractor.name
+                new_sales_invoice.posting_date = payment.date
+                new_sales_invoice.due_date = payment.date
+                new_sales_invoice.custom_amazon_order_id = payment.order_id
+                new_sales_invoice.custom_transaction_type = payment.transaction_type
+                new_sales_invoice.customer = customer
+                new_sales_invoice.append("items", {
+                    "item_name": payment.product_details,
+                    "item_code": payment.product_details,
+                    "qty": 1,
+                    "rate": payment.total_inr,
+                    "amount": payment.total_inr,
+                    "total_product_charges": payment.total_product_charges,
+                    "total_promotional_rebates": payment.total_promotional_rebates,
+                    "amazon_fees": payment.amazon_fees,
+                    "other": payment.other,
+                    "total_inr": payment.total_inr
+                })
+
+                new_sales_invoice.flags.ignore_mandatory = True
+                new_sales_invoice.flags.ignore_validate = True
+                new_sales_invoice.set_missing_values()
+
+                new_sales_invoice.calculate_taxes_and_totals()
+
+                if new_sales_invoice.net_total is None:
+                    new_sales_invoice.net_total = sum(item.amount for item in new_sales_invoice.items)
+
+                new_sales_invoice.insert(ignore_permissions=True)
+
+                new_sales_invoice.save()
+                sales_invoice_count += 1
+                payment.sales_invoice_created = 1
+
+        amazon_payment_extractor.sales_invoice_created = 1
+        amazon_payment_extractor.save()
+        frappe.db.commit()
+        frappe.msgprint(
+            f"{sales_invoice_count} Sales Invoices Created.",
+            indicator="green",
+            alert=True,
+        )
+    else:
+        frappe.throw(_("Sales Invoice already exists for {0}").format(amazon_payment_extractor.name))
+
+
+@frappe.whitelist()
+def update_sales_invoices(docname):
+    amazon_payment_extractor = frappe.get_doc("Amazon Payment Extractor", docname)
+    sales_invoice_exist = frappe.db.exists(
+        "Sales Invoice", {"amazon_payment_extractor": amazon_payment_extractor.name}
+    )
+
+    for payment in amazon_payment_extractor.payment_details:
+        if payment.transaction_type == "Amazon Easy Ship Charges":
+            sales_invoices = frappe.get_all(
+                'Sales Invoice',
+                filters={"custom_amazon_order_id": payment.order_id},
+                fields=['name']
+            )
+            if sales_invoices:
+                for invoice in sales_invoices:
+                    existing_sales_invoice = frappe.get_doc("Sales Invoice", invoice.name)
+                    existing_sales_invoice.custom_transaction_type = payment.transaction_type
+                    existing_sales_invoice.append("items", {
+                        "item_name": payment.product_details,
+                        "item_code": payment.product_details,
+                        "qty": 1,
+                        "rate": payment.total_inr,
+                        "amount": payment.total_inr,
+                        "total_product_charges": payment.total_product_charges,
+                        "total_promotional_rebates": payment.total_promotional_rebates,
+                        "amazon_fees": payment.amazon_fees,
+                        "other": payment.other,
+                        "total_inr": payment.total_inr
+                    })
+
+                    existing_sales_invoice.flags.ignore_mandatory = True
+                    existing_sales_invoice.flags.ignore_validate = True
+                    existing_sales_invoice.set_missing_values()
+                    existing_sales_invoice.calculate_taxes_and_totals()
+
+                    if existing_sales_invoice.net_total is None:
+                        existing_sales_invoice.net_total = sum(item.amount for item in existing_sales_invoice.items)
+                    existing_sales_invoice.save()
+
+        amazon_payment_extractor.amazon_easy_shipping_charge = 1
+        amazon_payment_extractor.save()
+        frappe.db.commit()
+    frappe.msgprint("Sales Invoices Updated.",indicator="green",alert=True,)
+
+@frappe.whitelist()
+def update_sales_invoices_refund(docname):
+    amazon_payment_extractor = frappe.get_doc("Amazon Payment Extractor", docname)
+    sales_invoice_exist = frappe.db.exists(
+        "Sales Invoice", {"amazon_payment_extractor": amazon_payment_extractor.name}
+    )
+
+    for payment in amazon_payment_extractor.payment_details:
+        if payment.transaction_type == "Refund":
+            sales_invoices = frappe.get_all(
+                'Sales Invoice',
+                filters={"custom_amazon_order_id": payment.order_id},
+                fields=['name']
+            )
+            if sales_invoices:
+                for invoice in sales_invoices:
+                    existing_sales_invoice = frappe.get_doc("Sales Invoice", invoice.name)
+                    existing_sales_invoice.custom_transaction_type = payment.transaction_type
+                    existing_sales_invoice.append("items", {
+                        "item_name": payment.product_details,
+                        "item_code": payment.product_details,
+                        "qty": 1,
+                        "rate": payment.total_inr,
+                        "amount": payment.total_inr,
+                        "total_product_charges": payment.total_product_charges,
+                        "total_promotional_rebates": payment.total_promotional_rebates,
+                        "amazon_fees": payment.amazon_fees,
+                        "other": payment.other,
+                        "total_inr": payment.total_inr
+                    })
+
+                    existing_sales_invoice.flags.ignore_mandatory = True
+                    existing_sales_invoice.flags.ignore_validate = True
+                    existing_sales_invoice.set_missing_values()
+                    existing_sales_invoice.calculate_taxes_and_totals()
+
+                    if existing_sales_invoice.net_total is None:
+                        existing_sales_invoice.net_total = sum(item.amount for item in existing_sales_invoice.items)
+                    existing_sales_invoice.save()
+
+        amazon_payment_extractor.refund = 1
+        amazon_payment_extractor.save()
+        frappe.db.commit()
+    frappe.msgprint("Sales Invoices Updated.",indicator="green",alert=True,)
+
+@frappe.whitelist()
+def update_sales_invoices_fulfillment_fee_refund(docname):
+    amazon_payment_extractor = frappe.get_doc("Amazon Payment Extractor", docname)
+    sales_invoice_exist = frappe.db.exists(
+        "Sales Invoice", {"amazon_payment_extractor": amazon_payment_extractor.name}
+    )
+
+    for payment in amazon_payment_extractor.payment_details:
+        if payment.transaction_type == "Fulfillment Fee Refund":
+            sales_invoices = frappe.get_all(
+                'Sales Invoice',
+                filters={"custom_amazon_order_id": payment.order_id},
+                fields=['name']
+            )
+            if sales_invoices:
+                for invoice in sales_invoices:
+                    existing_sales_invoice = frappe.get_doc("Sales Invoice", invoice.name)
+                    existing_sales_invoice.custom_transaction_type = payment.transaction_type
+                    existing_sales_invoice.append("items", {
+                        "item_name": payment.product_details,
+                        "item_code": payment.product_details,
+                        "qty": 1,
+                        "rate": payment.total_inr,
+                        "amount": payment.total_inr,
+                        "total_product_charges": payment.total_product_charges,
+                        "total_promotional_rebates": payment.total_promotional_rebates,
+                        "amazon_fees": payment.amazon_fees,
+                        "other": payment.other,
+                        "total_inr": payment.total_inr
+                    })
+
+                    existing_sales_invoice.flags.ignore_mandatory = True
+                    existing_sales_invoice.flags.ignore_validate = True
+                    existing_sales_invoice.set_missing_values()
+                    existing_sales_invoice.calculate_taxes_and_totals()
+
+                    if existing_sales_invoice.net_total is None:
+                        existing_sales_invoice.net_total = sum(item.amount for item in existing_sales_invoice.items)
+                    existing_sales_invoice.save()
+
+        amazon_payment_extractor.fulfillment_fee_refund = 1
+        amazon_payment_extractor.save()
+        frappe.db.commit()
+    frappe.msgprint("Sales Invoices Updated.",indicator="green",alert=True,)

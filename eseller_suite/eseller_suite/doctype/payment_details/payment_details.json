@@ -15,7 +15,8 @@
   "total_promotional_rebates",
   "amazon_fees",
   "other",
-  "total_inr"
+  "total_inr",
+  "sales_invoice_created"
  ],
  "fields": [
   {
@@ -75,12 +76,18 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Total (INR)"
+  },
+  {
+   "default": "0",
+   "fieldname": "sales_invoice_created",
+   "fieldtype": "Check",
+   "label": "Sales Invoice Created"
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2024-05-14 11:20:10.278809",
+ "modified": "2024-05-24 10:48:57.907731",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "Payment Details",
