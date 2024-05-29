@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"YeQg3DXhTl\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">eSeller Suite</span>\",\"col\":12}},{\"id\":\"56KcdtySH_\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"eSeller Settings\",\"col\":3}},{\"id\":\"fgLuQOKLke\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Amazon Payment Extractor\",\"col\":3}}]",
+ "content": "[{\"id\":\"YeQg3DXhTl\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">eSeller Suite</span>\",\"col\":12}},{\"id\":\"56KcdtySH_\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"eSeller Settings\",\"col\":3}},{\"id\":\"fgLuQOKLke\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Amazon Payment Extractor\",\"col\":3}},{\"id\":\"7J5AkQlv_E\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Flipkart Payment Extractor\",\"col\":3}}]",
  "creation": "2024-05-27 13:20:31.068773",
  "custom_blocks": [],
  "docstatus": 0,
@@ -13,7 +13,7 @@
  "is_hidden": 0,
  "label": "eSeller Suite",
  "links": [],
- "modified": "2024-05-27 13:21:47.877410",
+ "modified": "2024-05-27 15:33:09.753716",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "eSeller Suite",
@@ -30,6 +30,14 @@
    "doc_view": "List",
    "label": "eSeller Settings",
    "link_to": "eSeller Settings",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Flipkart Payment Extractor",
+   "link_to": "Flipkart Payment Extractor",
+   "stats_filter": "[]",
    "type": "DocType"
   },
   {
