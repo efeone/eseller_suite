@@ -6,7 +6,11 @@
  "engine": "InnoDB",
  "field_order": [
   "attachments_section",
-  "import_file"
+  "import_file",
+  "test",
+  "section_break_uuhb",
+  "column_break_ncxc",
+  "flipkart_ads_details"
  ],
  "fields": [
   {
@@ -18,11 +22,32 @@
    "fieldname": "import_file",
    "fieldtype": "Attach",
    "label": "Import File"
+  },
+  {
+   "fieldname": "section_break_uuhb",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "flipkart_ads_details",
+   "fieldtype": "Table",
+   "label": "Flipkart Ads Details",
+   "options": "Flipkart Ads Details",
+   "read_only": 1
+  },
+  {
+   "fieldname": "test",
+   "fieldtype": "Data",
+   "label": "Test"
+  },
+  {
+   "fieldname": "column_break_ncxc",
+   "fieldtype": "Column Break",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-05-27 12:32:38.670390",
+ "modified": "2024-05-28 11:02:04.470540",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "Flipkart Payment Extractor",
