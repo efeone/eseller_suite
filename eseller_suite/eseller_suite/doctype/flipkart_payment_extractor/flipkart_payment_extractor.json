@@ -8,6 +8,7 @@
   "attachments_section",
   "import_file",
   "test",
+  "purchase_invoice_created",
   "section_break_uuhb",
   "column_break_ncxc",
   "flipkart_ads_details"
@@ -43,11 +44,18 @@
    "fieldname": "column_break_ncxc",
    "fieldtype": "Column Break",
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "purchase_invoice_created",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Purchase Invoice Created"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-05-28 11:02:04.470540",
+ "modified": "2024-05-29 14:40:07.756449",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "Flipkart Payment Extractor",

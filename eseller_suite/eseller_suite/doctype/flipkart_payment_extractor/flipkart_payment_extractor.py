@@ -75,3 +75,65 @@ class FlipkartPaymentExtractor(Document):
 			data = read_xls_file_from_attached_file(content)
 
 		return data, extension
+
+
+@frappe.whitelist()
+def create_purchase_invoices(docname):
+    flipkart_payment_extractor = frappe.get_doc("Flipkart Payment Extractor", docname)
+    purchase_invoice_exist = frappe.db.exists(
+        "Sales Invoice", {"flipkart_payment_extractor": flipkart_payment_extractor.name}
+    )
+    supplier = frappe.get_single("eSeller Settings").get("default_flipkart_supplier")
+
+    if not purchase_invoice_exist:
+        purchase_invoice_count = 0
+
+        for payment in flipkart_payment_extractor.flipkart_ads_details:
+            if payment.type == "redeem" or payment.type == "topup" or payment.type == "refund":
+                new_purchase_invoice = frappe.new_doc("Purchase Invoice")
+                new_purchase_invoice.flipkart_payment_extractor = flipkart_payment_extractor.name
+                new_purchase_invoice.due_date = payment.payment_date
+                new_purchase_invoice.custom_transaction_id = payment.transaction_id
+                new_purchase_invoice.custom_wallet_redeem = payment.wallet_redeem
+                new_purchase_invoice.custom_wallet_topup = payment.wallet_topup
+                new_purchase_invoice.custom_wallet_refund_ = payment.wallet_refund
+                new_purchase_invoice.custom_transaction_type = payment.type
+                new_purchase_invoice.supplier = supplier
+                new_purchase_invoice.append("items", {
+                    "item_name": payment.type,
+                    "item_code": payment.type,
+                    "qty": 1,
+                    "rate": payment.settlement_value,
+                    "amount": payment.settlement_value,
+                    "custom_wallet_redeem_reversal": payment.wallet_redeem_reversal,
+					"custom_settlement_value": payment.settlement_value,
+                    "custom_gst_on_ads_fees": payment.gst_on_ads_fees,
+                    "custom__wallet_topup_": payment.wallet_topup,
+                    "custom_wallet_redeem": payment.wallet_redeem,
+                    "custom__wallet_refund_": payment.wallet_refund
+                })
+
+                new_purchase_invoice.flags.ignore_mandatory = True
+                new_purchase_invoice.flags.ignore_validate = True
+                new_purchase_invoice.set_missing_values()
+
+                new_purchase_invoice.calculate_taxes_and_totals()
+
+                if new_purchase_invoice.net_total is None:
+                    new_purchase_invoice.net_total = sum(item.amount for item in new_purchase_invoice.items)
+
+                new_purchase_invoice.insert(ignore_permissions=True)
+
+                new_purchase_invoice.submit()
+                purchase_invoice_count += 1
+
+        flipkart_payment_extractor.purchase_invoice_created = 1
+        flipkart_payment_extractor.save()
+        frappe.db.commit()
+        frappe.msgprint(
+            f"{purchase_invoice_count} Purchase Invoices Created.",
+            indicator="green",
+            alert=True,
+        )
+    else:
+        frappe.throw(_("Purchase Invoice already exists for {0}").format(flipkart_payment_extractor.name))

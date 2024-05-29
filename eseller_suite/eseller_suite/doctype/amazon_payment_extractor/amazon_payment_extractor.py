@@ -50,7 +50,7 @@ class AmazonPaymentExtractor(Document):
             'Transaction type': "transaction_type",
             'Order ID': "order_id",
             'Product Details': "product_details",
-            'Total product charges': "total_product_charge",
+            'Total product charges': "total_product_charges",
             'Total promotional rebates': "total_promotional_rebates",
             'Amazon fees': "amazon_fees",
             'Other': "other",
