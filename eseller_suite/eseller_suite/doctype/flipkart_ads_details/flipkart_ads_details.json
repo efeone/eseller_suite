@@ -1,0 +1,94 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-05-27 16:08:31.000707",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "neft_id",
+  "transaction_id",
+  "wallet_redeem",
+  "wallet_topup",
+  "gst_on_ads_fees",
+  "column_break_chmi",
+  "payment_date",
+  "type",
+  "wallet_redeem_reversal",
+  "wallet_refund",
+  "settlement_value"
+ ],
+ "fields": [
+  {
+   "fieldname": "payment_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Payment Date"
+  },
+  {
+   "fieldname": "settlement_value",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Settlement Value"
+  },
+  {
+   "fieldname": "type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Type",
+   "options": "\nredeem\nrefund\ntopup"
+  },
+  {
+   "fieldname": "transaction_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Transaction ID"
+  },
+  {
+   "fieldname": "wallet_redeem",
+   "fieldtype": "Currency",
+   "label": "Wallet Redeem"
+  },
+  {
+   "fieldname": "wallet_redeem_reversal",
+   "fieldtype": "Currency",
+   "label": "Wallet Redeem Reversal"
+  },
+  {
+   "fieldname": "wallet_topup",
+   "fieldtype": "Currency",
+   "label": "Wallet Topup"
+  },
+  {
+   "fieldname": "wallet_refund",
+   "fieldtype": "Currency",
+   "label": "Wallet Refund "
+  },
+  {
+   "fieldname": "gst_on_ads_fees",
+   "fieldtype": "Currency",
+   "label": "GST on Ads Fees"
+  },
+  {
+   "fieldname": "column_break_chmi",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "neft_id",
+   "fieldtype": "Data",
+   "label": "NEFT ID"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2024-05-28 10:36:29.474191",
+ "modified_by": "Administrator",
+ "module": "eSeller Suite",
+ "name": "Flipkart Ads Details",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

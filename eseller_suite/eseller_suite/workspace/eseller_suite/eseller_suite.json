@@ -13,16 +13,20 @@
  "is_hidden": 0,
  "label": "eSeller Suite",
  "links": [],
- "modified": "2024-05-27 15:33:09.753716",
+ "modified": "2024-05-29 10:23:22.249020",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "eSeller Suite",
  "number_cards": [],
  "owner": "Administrator",
- "parent_page": "Home",
+ "parent_page": "",
  "public": 1,
  "quick_lists": [],
- "roles": [],
+ "roles": [
+  {
+   "role": "Sales User"
+  }
+ ],
  "sequence_id": 2.0,
  "shortcuts": [
   {
