@@ -12,8 +12,10 @@
   "amazon_easy_shipping_charge",
   "refund",
   "fulfillment_fee_refund",
+  "invoices_submitted",
   "payment_details_section",
-  "payment_details"
+  "payment_details",
+  "missing_items"
  ],
  "fields": [
   {
@@ -35,7 +37,7 @@
    "fieldname": "payment_details",
    "fieldtype": "Table",
    "label": "Payment Details",
-   "options": "Payment Details"
+   "options": "Amazon Payment Details"
   },
   {
    "default": "0",
@@ -64,11 +66,24 @@
    "fieldtype": "Check",
    "hidden": 1,
    "label": "Fulfillment Fee Refund"
+  },
+  {
+   "fieldname": "missing_items",
+   "fieldtype": "Long Text",
+   "label": "Missing Items",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "invoices_submitted",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Invoices Submitted"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-05-28 14:36:06.423966",
+ "modified": "2024-05-29 13:26:44.834750",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "Amazon Payment Extractor",
