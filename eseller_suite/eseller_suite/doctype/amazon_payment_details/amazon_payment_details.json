@@ -10,38 +10,43 @@
   "transaction_type",
   "order_id",
   "product_details",
+  "item_code",
+  "sales_invoice",
   "column_break_hvaa",
   "total_product_charges",
   "total_promotional_rebates",
   "amazon_fees",
   "other",
-  "total_inr",
-  "sales_invoice_created"
+  "total_inr"
  ],
  "fields": [
   {
    "fieldname": "date",
    "fieldtype": "Date",
    "in_list_view": 1,
-   "label": "Date"
+   "label": "Date",
+   "read_only": 1
   },
   {
    "fieldname": "transaction_type",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Transaction Type"
+   "label": "Transaction Type",
+   "read_only": 1
   },
   {
    "fieldname": "order_id",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Order ID"
+   "label": "Order ID",
+   "read_only": 1
   },
   {
    "fieldname": "product_details",
-   "fieldtype": "Small Text",
+   "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Product Details"
+   "label": "Product Details",
+   "read_only": 1
   },
   {
    "fieldname": "column_break_hvaa",
@@ -51,46 +56,58 @@
    "fieldname": "total_product_charges",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Total Product Charges"
+   "label": "Total Product Charges",
+   "read_only": 1
   },
   {
    "fieldname": "total_promotional_rebates",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Total Promotional Rebates"
+   "label": "Total Promotional Rebates",
+   "read_only": 1
   },
   {
    "fieldname": "amazon_fees",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Amazon Fees"
+   "label": "Amazon Fees",
+   "read_only": 1
   },
   {
    "fieldname": "other",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Other"
+   "label": "Other",
+   "read_only": 1
   },
   {
    "fieldname": "total_inr",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Total (INR)"
+   "label": "Total (INR)",
+   "read_only": 1
   },
   {
-   "default": "0",
-   "fieldname": "sales_invoice_created",
-   "fieldtype": "Check",
-   "label": "Sales Invoice Created"
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item Code",
+   "options": "Item"
+  },
+  {
+   "fieldname": "sales_invoice",
+   "fieldtype": "Link",
+   "label": "Sales Invoice",
+   "options": "Sales Invoice",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2024-05-24 10:48:57.907731",
+ "modified": "2024-05-29 13:37:07.271513",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
- "name": "Payment Details",
+ "name": "Amazon Payment Details",
  "owner": "Administrator",
  "permissions": [],
  "sort_field": "modified",
