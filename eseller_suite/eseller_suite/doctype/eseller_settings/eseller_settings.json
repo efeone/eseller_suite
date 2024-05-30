@@ -7,6 +7,8 @@
  "field_order": [
   "defaults_section",
   "default_amazon_customer",
+  "column_break_lzak",
+  "default_pos_profile",
   "flipkart_defaults_section",
   "default_flipkart_customer",
   "column_break_qzmo",
@@ -47,13 +49,24 @@
    "fieldtype": "Link",
    "label": "Default Flipkart Supplier",
    "options": "Supplier"
+  },
+  {
+   "description": "This POS Profile will be used while creating Sales Invoices from Amazon Payment Extractor",
+   "fieldname": "default_pos_profile",
+   "fieldtype": "Link",
+   "label": "Default POS Profile",
+   "options": "POS Profile"
+  },
+  {
+   "fieldname": "column_break_lzak",
+   "fieldtype": "Column Break"
   }
  ],
  "hide_toolbar": 1,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2024-05-27 13:18:54.006669",
+ "modified": "2024-05-29 15:07:14.769872",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "eSeller Settings",
