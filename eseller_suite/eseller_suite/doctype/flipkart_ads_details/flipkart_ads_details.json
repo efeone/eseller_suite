@@ -8,15 +8,18 @@
  "field_order": [
   "neft_id",
   "transaction_id",
+  "seller_sku",
   "wallet_redeem",
   "wallet_topup",
   "gst_on_ads_fees",
+  "item_code",
   "column_break_chmi",
   "payment_date",
   "type",
   "wallet_redeem_reversal",
   "wallet_refund",
-  "settlement_value"
+  "settlement_value",
+  "purchase_invoice"
  ],
  "fields": [
   {
@@ -77,12 +80,29 @@
    "fieldname": "neft_id",
    "fieldtype": "Data",
    "label": "NEFT ID"
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item Code",
+   "options": "Item"
+  },
+  {
+   "fieldname": "purchase_invoice",
+   "fieldtype": "Link",
+   "label": "Purchase Invoice",
+   "options": "Purchase Invoice"
+  },
+  {
+   "fieldname": "seller_sku",
+   "fieldtype": "Data",
+   "label": "Seller SKU"
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2024-05-28 10:36:29.474191",
+ "modified": "2024-05-30 15:05:14.817144",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "Flipkart Ads Details",

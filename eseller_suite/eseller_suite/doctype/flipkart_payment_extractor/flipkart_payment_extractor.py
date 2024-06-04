@@ -11,6 +11,7 @@ read_xlsx_file_from_attached_file,
 )
 
 ads_sheet_key_order = ['neft_id', 'payment_date', 'settlement_value', 'type', 'transaction_id', 'wallet_redeem', 'wallet_redeem_reversal', 'wallet_topup', 'wallet_refund', 'gst_on_ads_fees']
+order_sheet_key_order = ['order_date','dispatch_date','order_type','fulfilment_type','seller_sku','quantity','product_sub_category','additional_information','return_type','shopsy_order','item_return_status',' ','invoice_id','invoice_date',' ','total_rs']
 
 
 class FlipkartPaymentExtractor(Document):
@@ -24,6 +25,7 @@ class FlipkartPaymentExtractor(Document):
 			if self.raw_data and self.file_extension:
 				if self.file_extension == 'xlsx':
 					ads_data = self.raw_data.get('Ads')
+					order_data = self.raw_data.get('Orders')
 					if ads_data:
 						for row in ads_data[2:]:
 							idx = 0
@@ -35,10 +37,21 @@ class FlipkartPaymentExtractor(Document):
 									idx += 1
 							self.append('flipkart_ads_details', ads_details_row_data)
 
+					if order_data:
+						for row in order_data[3:]:
+							idx = 0
+							order_details_row_data = {}
+							for values in row[54:70]:
+								order_details_key = order_sheet_key_order[idx]
+								order_details_row_data[order_details_key] = values
+								idx += 1
+							print(order_details_row_data)
+							self.append('flipkart_order_details', order_details_row_data)
 
 				if self.file_extension == 'csv':
 					for row in self.raw_data:
 						print(row)
+
 
 	def get_data_from_template_file(self):
 		content = None
@@ -78,7 +91,7 @@ class FlipkartPaymentExtractor(Document):
 
 
 @frappe.whitelist()
-def create_purchase_invoices(docname):
+def create_ads_purchase_invoices(docname):
     flipkart_payment_extractor = frappe.get_doc("Flipkart Payment Extractor", docname)
     purchase_invoice_exist = frappe.db.exists(
         "Sales Invoice", {"flipkart_payment_extractor": flipkart_payment_extractor.name}
@@ -135,5 +148,59 @@ def create_purchase_invoices(docname):
             indicator="green",
             alert=True,
         )
-    else:
-        frappe.throw(_("Purchase Invoice already exists for {0}").format(flipkart_payment_extractor.name))
+
+@frappe.whitelist()
+def create_order_purchase_invoices(docname):
+    flipkart_payment_extractor = frappe.get_doc("Flipkart Payment Extractor", docname)
+    purchase_invoice_exist = frappe.db.exists(
+        "Sales Invoice", {"flipkart_payment_extractor": flipkart_payment_extractor.name}
+    )
+    supplier = frappe.get_single("eSeller Settings").get("default_flipkart_supplier")
+
+    if not purchase_invoice_exist:
+        purchase_invoice_count = 0
+
+        for order in flipkart_payment_extractor.flipkart_order_details:
+            if order.order_type == "prepaid":
+                new_purchase_invoice = frappe.new_doc("Purchase Invoice")
+                new_purchase_invoice.flipkart_payment_extractor = flipkart_payment_extractor.name
+                new_purchase_invoice.due_date = order.order_date
+                new_purchase_invoice.supplier = supplier
+                new_purchase_invoice.append("items", {
+                    "item_name": order.seller_sku,
+                    "item_code": order.seller_sku,
+                    "qty": order.quantity,
+                    "rate": order.total_rs,
+                    "amount": order.total_rs,
+                    "custom_dispatch_date": order.dispatch_date,
+					"custom_order_type": order.order_type,
+                    "custom_fulfilment_type": order.fulfilment_type,
+                    "custom_item_return_status": order.item_return_status,
+                    "custom_shopsy_order": order.shopsy_order,
+                    "custom_return_type": order.return_type,
+					"custom_additional_information": order.additional_information,
+
+                })
+
+                new_purchase_invoice.flags.ignore_mandatory = True
+                new_purchase_invoice.flags.ignore_validate = True
+                new_purchase_invoice.set_missing_values()
+
+                new_purchase_invoice.calculate_taxes_and_totals()
+
+                if new_purchase_invoice.net_total is None:
+                    new_purchase_invoice.net_total = sum(item.amount for item in new_purchase_invoice.items)
+
+                new_purchase_invoice.insert(ignore_permissions=True)
+
+                new_purchase_invoice.submit()
+                purchase_invoice_count += 1
+
+        flipkart_payment_extractor.flipkart_order = 1
+        flipkart_payment_extractor.save()
+        frappe.db.commit()
+        frappe.msgprint(
+            f"{purchase_invoice_count} Purchase Invoices Created.",
+            indicator="green",
+            alert=True,
+        )
