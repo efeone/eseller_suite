@@ -9,9 +9,12 @@
   "import_file",
   "test",
   "purchase_invoice_created",
+  "flipkart_order",
   "section_break_uuhb",
   "column_break_ncxc",
-  "flipkart_ads_details"
+  "flipkart_ads_details",
+  "section_break_abfi",
+  "flipkart_order_details"
  ],
  "fields": [
   {
@@ -51,11 +54,29 @@
    "fieldtype": "Check",
    "hidden": 1,
    "label": "Purchase Invoice Created"
+  },
+  {
+   "fieldname": "flipkart_order_details",
+   "fieldtype": "Table",
+   "label": "Flipkart Order Details",
+   "options": "Flipkart Order Details",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_abfi",
+   "fieldtype": "Section Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "flipkart_order",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Flipkart Order"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-05-29 14:40:07.756449",
+ "modified": "2024-05-31 16:43:16.279592",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "Flipkart Payment Extractor",

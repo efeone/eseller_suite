@@ -1,0 +1,125 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-05-30 15:43:46.988920",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "order_date",
+  "dispatch_date",
+  "order_type",
+  "fulfilment_type",
+  "seller_sku",
+  "return_type",
+  "invoice_id",
+  "column_break_alok",
+  "quantity",
+  "product_sub_category",
+  "additional_information",
+  "shopsy_order",
+  "item_return_status",
+  "total_rs",
+  "invoice_date"
+ ],
+ "fields": [
+  {
+   "fieldname": "order_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Order Date"
+  },
+  {
+   "fieldname": "column_break_alok",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "dispatch_date",
+   "fieldtype": "Date",
+   "label": "Dispatch Date"
+  },
+  {
+   "fieldname": "order_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Order Type",
+   "options": "\nprepaid"
+  },
+  {
+   "fieldname": "fulfilment_type",
+   "fieldtype": "Select",
+   "label": "Fulfilment Type",
+   "options": "\nseller_easy_ship"
+  },
+  {
+   "fieldname": "seller_sku",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Seller SKU",
+   "options": "Item"
+  },
+  {
+   "fieldname": "quantity",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Quantity"
+  },
+  {
+   "fieldname": "product_sub_category",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Product Sub Category"
+  },
+  {
+   "fieldname": "additional_information",
+   "fieldtype": "Data",
+   "label": "Additional Information"
+  },
+  {
+   "fieldname": "return_type",
+   "fieldtype": "Select",
+   "label": "Return Type",
+   "options": "\ncourier_return\ncustomer_return\nNA"
+  },
+  {
+   "fieldname": "shopsy_order",
+   "fieldtype": "Data",
+   "label": "Shopsy Order"
+  },
+  {
+   "fieldname": "item_return_status",
+   "fieldtype": "Select",
+   "label": "Item Return Status",
+   "options": "\nExpect Product\nProduct Delivered\nNA"
+  },
+  {
+   "fieldname": "total_rs",
+   "fieldtype": "Currency",
+   "label": "Total (Rs.) "
+  },
+  {
+   "fieldname": "invoice_id",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Invoice ID"
+  },
+  {
+   "fieldname": "invoice_date",
+   "fieldtype": "Date",
+   "hidden": 1,
+   "label": "Invoice Date"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2024-05-31 16:38:53.068777",
+ "modified_by": "Administrator",
+ "module": "eSeller Suite",
+ "name": "Flipkart Order Details",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
