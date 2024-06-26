@@ -14,9 +14,10 @@
   "client_secret",
   "authorisation_token",
   "section_break_zuvx",
-  "access_token",
   "token_generated_on",
-  "token_exprire_on"
+  "token_exprire_on",
+  "column_break_tvrc",
+  "access_token"
  ],
  "fields": [
   {
@@ -88,12 +89,16 @@
    "fieldtype": "Datetime",
    "label": "Token Exprire On",
    "read_only": 1
+  },
+  {
+   "fieldname": "column_break_tvrc",
+   "fieldtype": "Column Break"
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2024-06-26 14:04:30.269602",
+ "modified": "2024-06-26 15:56:14.453678",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "Amazon Seller Central Settings",
