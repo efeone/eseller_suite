@@ -1,0 +1,116 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-06-26 12:49:03.769625",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_qtaw",
+  "enable",
+  "section_break_jsvl",
+  "app_id",
+  "client_id",
+  "column_break_zctr",
+  "client_secret",
+  "authorisation_token",
+  "section_break_zuvx",
+  "access_token",
+  "token_generated_on",
+  "token_exprire_on"
+ ],
+ "fields": [
+  {
+   "depends_on": "enable",
+   "fieldname": "app_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "App ID",
+   "mandatory_depends_on": "enable"
+  },
+  {
+   "depends_on": "enable",
+   "fieldname": "client_id",
+   "fieldtype": "Data",
+   "label": "Client ID",
+   "mandatory_depends_on": "enable"
+  },
+  {
+   "fieldname": "column_break_zctr",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "enable",
+   "fieldname": "client_secret",
+   "fieldtype": "Data",
+   "label": "Client Secret",
+   "mandatory_depends_on": "enable"
+  },
+  {
+   "depends_on": "enable",
+   "fieldname": "authorisation_token",
+   "fieldtype": "Password",
+   "label": "Authorisation Token",
+   "mandatory_depends_on": "enable"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable",
+   "fieldtype": "Check",
+   "label": "Enable"
+  },
+  {
+   "fieldname": "section_break_jsvl",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "section_break_qtaw",
+   "fieldtype": "Section Break",
+   "hide_border": 1
+  },
+  {
+   "fieldname": "section_break_zuvx",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "access_token",
+   "fieldtype": "Password",
+   "label": "Access Token",
+   "read_only": 1
+  },
+  {
+   "fieldname": "token_generated_on",
+   "fieldtype": "Datetime",
+   "label": "Token Generated On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "token_exprire_on",
+   "fieldtype": "Datetime",
+   "label": "Token Exprire On",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2024-06-26 14:04:30.269602",
+ "modified_by": "Administrator",
+ "module": "eSeller Suite",
+ "name": "Amazon Seller Central Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
