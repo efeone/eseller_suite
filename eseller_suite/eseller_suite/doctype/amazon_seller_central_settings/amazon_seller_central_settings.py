@@ -24,6 +24,7 @@ def get_authorisation_token():
 		"Amazon Seller Central Settings", "Amazon Seller Central Settings", "authorisation_token"
 	)
 
+
 def get_access_token():
 	'''
 		Method to get access_token from the Settings, if exprired generate and return new token
@@ -72,3 +73,49 @@ def generate_access_token():
 			frappe.db.set_single_value("Amazon Seller Central Settings", "token_generated_on", get_datetime(token_generated_on).strftime(DATETIME_FORMAT))
 			frappe.db.set_single_value("Amazon Seller Central Settings", "token_exprire_on", get_datetime(token_exprire_on).strftime(DATETIME_FORMAT))
 			return access_token
+
+@frappe.whitelist()
+def get_orders():
+	token = get_access_token()
+	url = "https://sellingpartnerapi-eu.amazon.com/orders/v0/orders"
+	response_data = {
+		"MarketplaceIds":"A21TJRUUN4KGV",
+		"CreatedAfter":"2024-06-25"
+	}
+
+	headers = {
+	    "x-amz-access-token": token,
+	    "Content-Type": "application/json"
+	}
+
+	response = requests.get(url, headers=headers, params=response_data)
+	if response.ok:
+		response_json = response.json()
+		if response_json.get('payload'):
+			payload = response_json.get('payload')
+			if payload.get('Orders'):
+				orders = payload.get('Orders')
+				for order in orders:
+					if order.get('AmazonOrderId'):
+						order_id = order.get('AmazonOrderId')
+						get_order_items(order_id)
+
+@frappe.whitelist()
+def get_order_items(order_id):
+	'''
+		Method to get order Items
+	'''
+	token = get_access_token()
+	api_base_url = "https://sellingpartnerapi-eu.amazon.com"
+	endpoint = f"{api_base_url}/orders/v0/orders/{order_id}/orderItems"
+
+	headers = {
+	    "x-amz-access-token": token,
+	    "Content-Type": "application/json"
+	}
+
+	response = requests.get(endpoint, headers=headers)
+	if response.ok:
+		response_json = response.json()
+		print('\n\n order_id : ', order_id)
+		print(response_json)
