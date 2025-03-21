@@ -475,11 +475,13 @@ class AmazonRepository:
 				service_fee_event_list = financial_events_payload.get("FinancialEvents", {}).get("ServiceFeeEventList", [])
 				next_token = financial_events_payload.get("NextToken")
 
-				charges_and_fees = {"posting_date": "", "items":[], "charges": [], "fees": [], "tds":[], "amazon_order_amount":amazon_order_amount, "order_date":order_date}
 
 				seller_sku = ''
 				for refund_event in refund_event_list:
 					if refund_event:
+
+						charges_and_fees = {"posting_date": "", "items":[], "charges": [], "fees": [], "tds":[], "amazon_order_amount":amazon_order_amount, "order_date":order_date}
+
 						charges_and_fees["posting_date"] = format_date_time_to_ist(refund_event.get("PostedDate"))
 						for refund_item in refund_event.get("ShipmentItemAdjustmentList", []):
 							charges = refund_item.get("ItemChargeAdjustmentList", [])
@@ -543,8 +545,13 @@ class AmazonRepository:
 										}
 									)
 
+						refund_events.append(charges_and_fees)			
+
 				for service_fee in service_fee_event_list:
 					if service_fee:
+
+						charges_and_fees = {"posting_date": "", "items":[], "charges": [], "fees": [], "tds":[], "amazon_order_amount":amazon_order_amount, "order_date":order_date}
+
 						for service_fee_item in service_fee.get("FeeList", []):
 							fee_type = service_fee_item.get("FeeType")
 							amount = service_fee_item.get("FeeAmount", {}).get("CurrencyAmount", 0)
@@ -558,10 +565,14 @@ class AmazonRepository:
 										"description": fee_type + " for " + seller_sku,
 									}
 								)
+						refund_events.append(charges_and_fees)		
 				
 				tdss = []
 				for shipment_event in shipment_event_list:
 					if shipment_event:
+
+						charges_and_fees = {"posting_date": "", "items":[], "charges": [], "fees": [], "tds":[], "amazon_order_amount":amazon_order_amount, "order_date":order_date}
+
 						for shipment_item in shipment_event.get("ShipmentItemList", []):
 							tds_list = shipment_item.get("ItemTaxWithheldList", [])
 							if tds_list:
@@ -579,6 +590,7 @@ class AmazonRepository:
 											"description": tds_type + " for " + seller_sku,
 										}
 									)
+						refund_events.append(charges_and_fees)			
 
 				refund_events.append(charges_and_fees)
 
@@ -599,6 +611,7 @@ class AmazonRepository:
 		so_id = None
 		so_docstatus = 0
 		refunds = get_refunds(self, order_id, order_date, amazon_order_amount)
+		
 		items = self.get_order_items(order_id)
 		if frappe.db.exists("Sales Order", {"amazon_order_id": order_id}):
 			so_id, so_docstatus = frappe.db.get_value("Sales Order", filters={"amazon_order_id": order_id}, fieldname=["name", "docstatus"])
