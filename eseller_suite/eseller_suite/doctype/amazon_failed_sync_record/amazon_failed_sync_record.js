@@ -61,14 +61,16 @@ function handle_custom_buttons(frm) {
 			})
 		}
         // Return invoice creation
-        frappe.db.get_value('Sales Invoice', { amazon_order_id: frm.doc.amazon_order_id }, 'name').then(r => {
-            // checking if the adjustment so is already created from another source
-            if (!r.message.name) {
-                frm.add_custom_button('Credit Note', () => {
-                    make_frappe_call(frm, 'create_return_invoice', 'Creating Credit Note..');
-                }, 'Create');
-            }
-        })
+		if(frm.doc.is_return_exception){
+			frappe.db.get_value('Sales Invoice', { amazon_order_id: frm.doc.amazon_order_id }, 'name').then(r => {
+				// checking if the adjustment so is already created from another source
+				if (!r.message.name) {
+					frm.add_custom_button('Credit Note', () => {
+						make_frappe_call(frm, 'create_return_invoice', 'Creating Credit Note...');
+					}, 'Create');
+				}
+			})
+		}
 	}
 }
 
@@ -122,6 +124,11 @@ function make_frappe_call(frm, method, msg) {
 		freeze_message: __(msg),
 		callback: (r) => {
 			frm.reload_doc();
+			if(method === 'create_return_invoice'){
+				setTimeout(() => {
+					frappe.set_route("List", "Amazon Failed Sync Record");
+				}, 1000);
+			}
 		}
 	});
 }
