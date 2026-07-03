@@ -194,6 +194,7 @@ class AmazonFailedSyncRecord(Document):
 					'qty': abs(row.get('qty')) * -1,
 					'rate': abs(row.get('amount'))/abs(row.get('qty')),
 					'amount': abs(row.get('amount')) * -1,
+					'sales_order': so,
 				})
 			# taxes and charges
 			return_si.taxes = []
@@ -244,3 +245,7 @@ class AmazonFailedSyncRecord(Document):
 			return_si.discount_amount = 0
 			return_si.save(ignore_permissions=True)
 			return_si.submit()
+
+			#Close respective Sales Order
+			frappe.db.set_value('Sales Order', so, 'status', 'Closed')
+			frappe.msgprint('Credit Note Created: <a href="{0}">{1}</a>'.format(get_url_to_form(return_si.doctype, return_si.name), return_si.name), alert=True, indicator='green')
