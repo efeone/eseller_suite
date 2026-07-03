@@ -34,11 +34,10 @@ class eSellerSettings(Document):
 			Sets the account for each mode of payment based on the Payment Accounts table.
 		'''
 		for row in self.payment_accounts:
-			if not row.mop_account:
-				filters = {"company": row.company, "parent": row.mode_of_payment}
-				mop_account = frappe.get_value("Mode of Payment Account", filters, 'default_account')
-				if mop_account:
-					row.mop_account = mop_account
+			filters = {"company": row.company, "parent": row.mode_of_payment}
+			mop_account = frappe.get_value("Mode of Payment Account", filters, 'default_account')
+			if mop_account != row.mop_account:
+				row.mop_account = mop_account
 			if self.use_reserve_lines_in_amazon_payment_entry != row.use_reserve_lines_in_amazon_payment_entry:
 				row.use_reserve_lines_in_amazon_payment_entry = self.use_reserve_lines_in_amazon_payment_entry
 
