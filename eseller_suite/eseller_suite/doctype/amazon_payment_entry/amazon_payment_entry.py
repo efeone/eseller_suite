@@ -141,6 +141,9 @@ class AmazonPaymentEntry(Document):
 							row.return_sales_invoice = return_invoice_details.get('sales_invoice')
 							row.ready_to_process = 1
 							has_changes = True
+						if return_invoice_details.get('customer') and not row.customer:
+							row.customer = return_invoice_details.get('customer')
+							has_changes = True
 					elif not return_invoice_details and self.remaining_refunds_have_no_returns:
 						row.ready_to_process = 1
 						has_changes = True
@@ -443,4 +446,3 @@ def get_account_based_on_company(company, account_type):
 	if account_type in account_types:
 		account = frappe.db.get_value('Amazon Payment Account', { 'company': company, 'parent': 'eSeller Settings', }, account_type)
 	return account
-
