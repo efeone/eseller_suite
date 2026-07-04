@@ -60,16 +60,23 @@ function handle_custom_buttons(frm) {
 				}
 			})
 		}
-        // Return invoice creation
+		// Return invoice creation
 		if(frm.doc.is_return_exception){
-			frappe.db.get_value('Sales Invoice', { amazon_order_id: frm.doc.amazon_order_id }, 'name').then(r => {
-				// checking if the adjustment so is already created from another source
-				if (!r.message.name) {
-					frm.add_custom_button('Credit Note', () => {
-						make_frappe_call(frm, 'create_return_invoice', 'Creating Credit Note...');
-					}, 'Create');
+			frappe.db.get_single_value('eSeller Settings', 'opening_date').then(opening_date => {
+				if (opening_date && frm.doc.posting_date > opening_date) {
+					frappe.db.get_value('Sales Invoice', { amazon_order_id: frm.doc.amazon_order_id }, 'name').then(r => {
+						// checking if the adjustment so is already created from another source
+						if (!r.message.name) {
+							frm.add_custom_button('Credit Note', () => {
+								make_frappe_call(frm, 'create_return_invoice', 'Creating Credit Note...');
+							}, 'Create');
+						}
+					});
 				}
-			})
+				else {
+					frm.set_intro(__('The return date is before the opening date ({0}). Credit Note creation is disabled.', [opening_date]), 'orange');
+				}
+			});
 		}
 	}
 }
