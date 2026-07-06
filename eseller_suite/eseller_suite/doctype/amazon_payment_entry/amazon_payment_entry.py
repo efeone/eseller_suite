@@ -205,6 +205,12 @@ class AmazonPaymentEntry(Document):
 							row.ready_to_process = 1
 							row.amazon_expense_account = other_income_account
 							has_changes = True
+				if row.transaction_type == 'Other' and row.product_details == 'Reimbursement or lost or damaged package':
+					reimbursement_income_account = get_account_based_on_company(row.company, 'reimbursement_income_account')
+					if reimbursement_income_account:
+						row.ready_to_process = 1
+						row.amazon_expense_account = reimbursement_income_account
+						has_changes = True
 				if row.transaction_type.strip() == 'Cancellation' and row.product_details == 'Order Cancellation Charge' and row.total and row.order_id:
 					if float(row.total) < 0:
 						order_cancellation_account = get_account_based_on_company(row.company, 'order_cancellation_account')
@@ -443,7 +449,8 @@ def get_account_based_on_company(company, account_type):
 		'other_expenses_account',
 		'other_income_account',
 		'order_cancellation_account',
-		'mop_account'
+		'mop_account',
+		'reimbursement_income_account'
 	]
 	if account_type in account_types:
 		account = frappe.db.get_value('Amazon Payment Account', { 'company': company, 'parent': 'eSeller Settings', }, account_type)
