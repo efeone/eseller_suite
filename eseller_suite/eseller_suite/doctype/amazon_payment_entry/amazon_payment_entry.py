@@ -127,10 +127,8 @@ class AmazonPaymentEntry(Document):
 						is_return = True
 						return_invoice_details = get_invoice_details(row.order_id, is_return=1, amount=row.total)
 					if invoice_details.get('sales_invoice'):
-						company = frappe.db.get_value('Sales Invoice', invoice_details.get('sales_invoice'), 'company')
-						if company:
-							row.company = company
 						row.sales_invoice = invoice_details.get('sales_invoice')
+						row.company = invoice_details.get('company')
 					if invoice_details.get('customer'):
 						row.customer = invoice_details.get('customer')
 						if not is_return:
@@ -143,6 +141,9 @@ class AmazonPaymentEntry(Document):
 							has_changes = True
 						if return_invoice_details.get('customer') and not row.customer:
 							row.customer = return_invoice_details.get('customer')
+							has_changes = True
+						if return_invoice_details.get('company'):
+							row.company = return_invoice_details.get('company')
 							has_changes = True
 					elif not return_invoice_details and self.remaining_refunds_have_no_returns:
 						row.ready_to_process = 1
@@ -204,6 +205,12 @@ class AmazonPaymentEntry(Document):
 							row.ready_to_process = 1
 							row.amazon_expense_account = other_income_account
 							has_changes = True
+				if row.transaction_type == 'Other' and row.product_details == 'Reimbursement or lost or damaged package':
+					reimbursement_income_account = get_account_based_on_company(row.company, 'reimbursement_income_account')
+					if reimbursement_income_account:
+						row.ready_to_process = 1
+						row.amazon_expense_account = reimbursement_income_account
+						has_changes = True
 				if row.transaction_type.strip() == 'Cancellation' and row.product_details == 'Order Cancellation Charge' and row.total and row.order_id:
 					if float(row.total) < 0:
 						order_cancellation_account = get_account_based_on_company(row.company, 'order_cancellation_account')
@@ -260,7 +267,7 @@ class AmazonPaymentEntry(Document):
 					if row.customer:
 						jv_row.party_type = 'Customer'
 						jv_row.party = row.customer
-						jv_row.account = self.default_receivable_account
+						jv_row.account = row.default_receivable_account or self.default_receivable_account
 
 					sales_invoice_ref = False
 					if row.sales_invoice:
@@ -274,7 +281,7 @@ class AmazonPaymentEntry(Document):
 					if sales_invoice_ref:
 						jv_row.reference_type = 'Sales Invoice'
 						outstanding_amount = float(frappe.db.get_value('Sales Invoice', sales_invoice_ref, 'outstanding_amount'))
-						if outstanding_amount >= abs(float(row.total)):
+						if outstanding_amount >= float(row.total):
 							jv_row.reference_name = sales_invoice_ref
 						else:
 							jv_row.user_remark = 'Invoice outstanding_amount = {0}'.format(outstanding_amount)
@@ -408,9 +415,10 @@ def get_invoice_details(amazon_order_id, is_return=0, amount=0):
 	if len(si_list)>1:
 		si = frappe.db.get_value('Sales Invoice', {'amazon_order_id':amazon_order_id, 'is_return':is_return, 'docstatus':1, 'grand_total': amount})
 	if si:
-		customer = frappe.db.get_value('Sales Invoice', si, 'customer')
+		customer, company = frappe.db.get_value('Sales Invoice', si, ['customer', 'company'])
 		invoice_details['sales_invoice'] = si
 		invoice_details['customer'] = customer
+		invoice_details['company'] = company
 	return invoice_details
 	
 def get_amazon_service_type_details(service_type):
@@ -441,7 +449,8 @@ def get_account_based_on_company(company, account_type):
 		'other_expenses_account',
 		'other_income_account',
 		'order_cancellation_account',
-		'mop_account'
+		'mop_account',
+		'reimbursement_income_account'
 	]
 	if account_type in account_types:
 		account = frappe.db.get_value('Amazon Payment Account', { 'company': company, 'parent': 'eSeller Settings', }, account_type)

@@ -8,6 +8,7 @@
  "field_order": [
   "company",
   "inventory_reimbursement_income_account",
+  "reimbursement_income_account",
   "other_income_account",
   "amazon_reserve_fund_account",
   "column_break_rsvl",
@@ -122,13 +123,20 @@
    "fieldtype": "Link",
    "label": "Amazon Reserve Fund Account",
    "options": "Account"
+  },
+  {
+   "description": "This account will be used for Lost or Damaged package",
+   "fieldname": "reimbursement_income_account",
+   "fieldtype": "Link",
+   "label": "Reimbursement Income Account",
+   "options": "Account"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-06-12 13:53:11.028514",
+ "modified": "2026-07-06 15:55:01.142784",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "Amazon Payment Account",
