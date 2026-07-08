@@ -801,20 +801,6 @@ class AmazonRepository:
 			):
 				return []
 
-			# Create mapping from SellerSKU to ASIN from order items
-			sku_to_asin = {}
-			orders = self.get_orders_instance()
-			order_items_payload = self.call_sp_api_method(
-				sp_api_method=orders.get_order_items, order_id=order_id
-			)
-			if order_items_payload:
-				order_items_list = order_items_payload.get("OrderItems", [])
-				for order_item in order_items_list:
-					seller_sku = order_item.get("SellerSKU")
-					asin = order_item.get("ASIN")
-					if seller_sku and asin:
-						sku_to_asin[seller_sku] = asin
-
 			refund_events = []
 
 			while True:
@@ -854,15 +840,11 @@ class AmazonRepository:
 							seller_sku = refund_item.get("SellerSKU")
 
 							# Get ASIN from refund_item or from mapping
-							asin = refund_item.get("ASIN") or sku_to_asin.get(
-								seller_sku
+							item_code = frappe.db.get_value(
+								'AFN Order Shipment Log',
+								filters={'merchant_sku': seller_sku, 'amazon_order_id': order_id},
+								fieldname='item_code'
 							)
-
-							item_code = None
-							if asin and frappe.db.exists("Item", {"amazon_item_code": asin}):
-								item_code = frappe.db.get_value("Item", {"amazon_item_code": asin})
-								if frappe.db.get_value("Item", item_code, "actual_item"):
-									item_code = frappe.db.get_value("Item", item_code, "actual_item")
 
 							for charge in charges:
 								charge_type = charge.get("ChargeType")
@@ -958,46 +940,6 @@ class AmazonRepository:
 								)
 
 						refund_events.append(charges_and_fees)
-
-				tdss = []
-				for shipment_event in shipment_event_list:
-					if shipment_event:
-						charges_and_fees = {
-							"posting_date": "",
-							"items": [],
-							"charges": [],
-							"fees": [],
-							"tds": [],
-							"amazon_order_amount": amazon_order_amount,
-							"order_date": order_date,
-						}
-
-						for shipment_item in shipment_event.get("ShipmentItemList", []):
-							tds_list = shipment_item.get("ItemTaxWithheldList", [])
-							if tds_list:
-								tdss = tds_list[0].get("TaxesWithheld", [])
-
-							for tds in tdss:
-								tds_type = tds.get("ChargeType")
-								amount = tds.get("ChargeAmount", {}).get(
-									"CurrencyAmount", 0
-								)
-
-								if float(amount) != 0:
-									tds_account = self.get_account(tds_type)
-									description = f"{tds_type} for {seller_sku if seller_sku else order_id}"
-									charges_and_fees["tds"].append(
-										{
-											"charge_type": "Actual",
-											"account_head": tds_account,
-											"tax_amount": amount,
-											"description": description,
-										}
-									)
-
-						refund_events.append(charges_and_fees)
-
-				refund_events.append(charges_and_fees)
 
 				if not next_token:
 					break
