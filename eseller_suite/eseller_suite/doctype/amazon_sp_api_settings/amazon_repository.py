@@ -787,7 +787,7 @@ class AmazonRepository:
 				make_address.is_shipping_address = 1
 				make_address.insert()
 
-		def get_refunds(self, order_id, order_date, amazon_order_amount=0) -> dict:
+		def get_refunds(self, order_id, order_date, amazon_order_amount=0, fulfillment_channel=None) -> dict:
 			finances = self.get_finances_instance()
 			financial_events_payload = self.call_sp_api_method(
 				sp_api_method=finances.list_financial_events_by_order_id,
@@ -801,12 +801,23 @@ class AmazonRepository:
 			):
 				return []
 
+			# Create mapping from SellerSKU to ASIN from order items (for MFN Orders)
+			sku_to_asin = {}
+			orders = self.get_orders_instance()
+			order_items_payload = self.call_sp_api_method(
+				sp_api_method=orders.get_order_items, order_id=order_id
+			)
+			if order_items_payload:
+				order_items_list = order_items_payload.get("OrderItems", [])
+				for order_item in order_items_list:
+					seller_sku = order_item.get("SellerSKU")
+					asin = order_item.get("ASIN")
+					if seller_sku and asin:
+						sku_to_asin[seller_sku] = asin
+
 			refund_events = []
 
 			while True:
-				shipment_event_list = financial_events_payload.get(
-					"FinancialEvents", {}
-				).get("ShipmentEventList", [])
 				refund_event_list = financial_events_payload.get(
 					"FinancialEvents", {}
 				).get("RefundEventList", [])
@@ -839,12 +850,21 @@ class AmazonRepository:
 							promotions = refund_item.get("PromotionAdjustmentList", [])
 							seller_sku = refund_item.get("SellerSKU")
 
-							# Get ASIN from refund_item or from mapping
-							item_code = frappe.db.get_value(
-								'AFN Order Shipment Log',
-								filters={'merchant_sku': seller_sku, 'amazon_order_id': order_id},
-								fieldname='item_code'
-							)
+							item_code = None
+							if fulfillment_channel == "MFN":
+								# ASIN Based Item Checking
+								asin = refund_item.get("ASIN") or sku_to_asin.get(seller_sku)
+								if asin and frappe.db.exists("Item", {"amazon_item_code": asin}):
+									item_code = frappe.db.get_value("Item", {"amazon_item_code": asin})
+									if frappe.db.get_value("Item", item_code, "actual_item"):
+										item_code = frappe.db.get_value("Item", item_code, "actual_item")
+							if fulfillment_channel == "AFN":
+								# AFN Shipment Log based Item Checking
+								item_code = frappe.db.get_value(
+									'AFN Order Shipment Log',
+									filters={'merchant_sku': seller_sku, 'amazon_order_id': order_id},
+									fieldname='item_code'
+								)
 
 							for charge in charges:
 								charge_type = charge.get("ChargeType")
@@ -955,10 +975,11 @@ class AmazonRepository:
 		order_id = order.get("AmazonOrderId")
 		order_date = format_date_time_to_ist(order.get("PurchaseDate"))
 		amazon_order_amount = order.get("OrderTotal", {}).get("Amount", 0)
+		fulfillment_channel = order.get("FulfillmentChannel")
 		company = self.amz_setting.company
 		so_id = None
 		so_docstatus = 0
-		refunds = get_refunds(self, order_id, order_date, amazon_order_amount)
+		refunds = get_refunds(self, order_id, order_date, amazon_order_amount, fulfillment_channel)
 
 		items = self.get_order_items(order_id)
 		so_result = frappe.db.get_value(
@@ -1006,9 +1027,8 @@ class AmazonRepository:
 					frappe.get_doc("Sales Invoice", existing_return_si).cancel()
 				except Exception as e:
 					frappe.log_error(
-						"Error cancelling Return Invoice for {0}: {1}".format(
-							existing_return_si, str(e)
-						)
+						title="Error cancelling Return Invoice for {0}".format(existing_return_si),
+						message="Exception: {1}".format(existing_return_si, str(e))
 					)
 					return so_id
 			return_si = frappe.new_doc("Sales Invoice")
