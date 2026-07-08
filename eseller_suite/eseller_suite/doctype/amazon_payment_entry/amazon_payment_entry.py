@@ -145,7 +145,13 @@ class AmazonPaymentEntry(Document):
 						if return_invoice_details.get('company'):
 							row.company = return_invoice_details.get('company')
 							has_changes = True
+						if return_invoice_details.get('debit_to'):
+							row.default_receivable_account = return_invoice_details.get('debit_to')
+							has_changes = True
 					elif not return_invoice_details and self.remaining_refunds_have_no_returns:
+						row.ready_to_process = 1
+						has_changes = True
+					if row.transaction_type == 'Refund' and float(row.total) == 0:
 						row.ready_to_process = 1
 						has_changes = True
 				elif row.transaction_type in ["Unavailable balance", "Previous statement's unavailable balance"]:
@@ -413,12 +419,16 @@ def get_invoice_details(amazon_order_id, is_return=0, amount=0):
 	si = frappe.db.exists('Sales Invoice', {'amazon_order_id':amazon_order_id, 'is_return':is_return, 'docstatus':1})
 	si_list = frappe.db.get_all('Sales Invoice', {'amazon_order_id':amazon_order_id, 'is_return':is_return, 'docstatus':1})
 	if len(si_list)>1:
-		si = frappe.db.get_value('Sales Invoice', {'amazon_order_id':amazon_order_id, 'is_return':is_return, 'docstatus':1, 'grand_total': amount})
+		new_si_list = frappe.db.get_all('Sales Invoice', {'amazon_order_id':amazon_order_id, 'is_return':is_return, 'docstatus':1, 'grand_total': amount})
+		si = False
+		if len(new_si_list)==1:
+			si = new_si_list[0].name
 	if si:
-		customer, company = frappe.db.get_value('Sales Invoice', si, ['customer', 'company'])
+		customer, company, debit_to = frappe.db.get_value('Sales Invoice', si, ['customer', 'company', 'debit_to'])
 		invoice_details['sales_invoice'] = si
 		invoice_details['customer'] = customer
 		invoice_details['company'] = company
+		invoice_details['debit_to'] = debit_to
 	return invoice_details
 	
 def get_amazon_service_type_details(service_type):

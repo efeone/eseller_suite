@@ -278,6 +278,15 @@ def get_sales_order_custom_fields():
 				"read_only": 1,
 				"no_copy": 1,
 			},
+			{
+				"fieldname": "shipment_log_id",
+				"fieldtype": "Data",
+				"label": "Shipment Log ID",
+				"insert_after": "amazon_order_item_id",
+				"read_only": 1,
+				"no_copy": 1,
+				"description": "Custom Unique ID for each shipment log for the item. Used to identify the shipment log in case of multiple shipment logs for the same item."
+			},
 		],
 		"Sales Taxes and Charges": [
 			{
@@ -287,6 +296,15 @@ def get_sales_order_custom_fields():
 				"insert_after": "description",
 				"read_only": 1,
 				"no_copy": 1,
+			},
+			{
+				"fieldname": "shipment_log_id",
+				"fieldtype": "Data",
+				"label": "Shipment Log ID",
+				"insert_after": "amazon_order_item_id",
+				"read_only": 1,
+				"no_copy": 1,
+				"description": "Custom Unique ID for each shipment log for the item. Used to identify the shipment log in case of multiple shipment logs for the same item."
 			},
 		]
 	}

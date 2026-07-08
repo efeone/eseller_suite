@@ -88,77 +88,28 @@ function clear_parent_warehouses(frm) {
 }
 
 function default_account_filters(frm) {
-	frm.set_query('inventory_reimbursement_income_account', 'payment_accounts', (doc, cdt, cdn) => {
-		let row = locals[cdt][cdn];
-		return {
-			filters: {
-				company: row.company || "",
-				is_group: 0
-			}
-		};
-	});
-	frm.set_query('other_income_account', 'payment_accounts', (doc, cdt, cdn) => {
-		let row = locals[cdt][cdn];
-		return {
-			filters: {
-				company: row.company || "",
-				is_group: 0
-			}
-		};
-	});
-	frm.set_query('amazon_reserve_fund_account', 'payment_accounts', (doc, cdt, cdn) => {
-		let row = locals[cdt][cdn];
-		return {
-			filters: {
-				company: row.company || "",
-				is_group: 0
-			}
-		};
-	});
-	frm.set_query('inventory_reimbursement_account', 'payment_accounts', (doc, cdt, cdn) => {
-		let row = locals[cdt][cdn];
-		return {
-			filters: {
-				company: row.company || "",
-				is_group: 0
-			}
-		};
-	});
-	frm.set_query('other_expenses_account', 'payment_accounts', (doc, cdt, cdn) => {
-		let row = locals[cdt][cdn];
-		return {
-			filters: {
-				company: row.company || "",
-				is_group: 0
-			}
-		};
-	});
-	frm.set_query('order_cancellation_account', 'payment_accounts', (doc, cdt, cdn) => {
-		let row = locals[cdt][cdn];
-		return {
-			filters: {
-				company: row.company || "",
-				is_group: 0
-			}
-		};
-	});
-	frm.set_query('amazon_reserve_income_account', 'payment_accounts', (doc, cdt, cdn) => {
-		let row = locals[cdt][cdn];
-		return {
-			filters: {
-				company: row.company || "",
-				is_group: 0
-			}
-		};
-	});
-	frm.set_query('amazon_reserve_expense_account', 'payment_accounts', (doc, cdt, cdn) => {
-		let row = locals[cdt][cdn];
-		return {
-			filters: {
-				company: row.company || "",
-				is_group: 0
-			}
-		};
+	const account_fields = [
+		'inventory_reimbursement_income_account',
+		'other_income_account',
+		'amazon_reserve_fund_account',
+		'reimbursement_income_account',
+		'inventory_reimbursement_account',
+		'other_expenses_account',
+		'order_cancellation_account',
+		'amazon_reserve_income_account',
+		'amazon_reserve_expense_account'
+	];
+
+	account_fields.forEach(fieldname => {
+		frm.set_query(fieldname, 'payment_accounts', (doc, cdt, cdn) => {
+			let row = locals[cdt][cdn];
+			return {
+				filters: {
+					company: row.company || "",
+					is_group: 0
+				}
+			};
+		});
 	});
 }
 
