@@ -491,107 +491,195 @@ def split_so_based_on_company(sales_order):
 	'''
 		Splits the sales order based on company in case of FC orders with multiple companies in shipment logs
 	'''
-	if frappe.db.exists("Sales Order", sales_order):
-		so_list = []
-		so_doc = frappe.get_doc("Sales Order", sales_order)
-		companies = frappe.db.get_all(
-			'AFN Order Shipment Log',
-			filters={'amazon_order_id': so_doc.amazon_order_id},
-			pluck='company',
-			distinct=True
-		)
-		for company in companies:
-			warehouse = None
-			new_so_doc = frappe.new_doc("Sales Order")
-			new_so_doc.update(so_doc.as_dict())
-			new_so_doc.items = []
-			new_so_doc.taxes = []
+	split_item_with_taxes(sales_order)
+	if not frappe.db.exists("Sales Order", sales_order):
+		return
 
-			shipment_logs = frappe.db.get_all(
-				'AFN Order Shipment Log',
-				filters={'amazon_order_id': so_doc.amazon_order_id, 'has_exceptions': 0, 'company': company},
-				fields=['fc_code', 'item_code', 'warehouse', 'company', 'qty']
-			)
+	so_doc = frappe.get_doc("Sales Order", sales_order)
 
-			# Build a consumption map: item_code -> list of {warehouse, fc_code, remaining_qty}
-			# This handles the case where the same item ships from multiple warehouses
-			log_consumption = {}
-			for log in shipment_logs:
-				item_map = log_consumption.setdefault(log.item_code, {})
-				if log.warehouse in item_map:
-					item_map[log.warehouse]["remaining_qty"] += log.qty
-				else:
-					item_map[log.warehouse] = {
-						"warehouse": log.warehouse,
-						"fc_code": log.fc_code,
-						"remaining_qty": log.qty
-					}
+	companies = frappe.db.get_all(
+		'AFN Order Shipment Log',
+		filters={'amazon_order_id': so_doc.amazon_order_id},
+		pluck='company',
+		distinct=True
+	)
 
-			# Convert inner dict to list for downstream compatibility
-			log_consumption = {
-				item_code: list(warehouse_map.values())
-				for item_code, warehouse_map in log_consumption.items()
+	# Fetch ALL shipment logs across ALL companies once, so allocation decisions
+	# (especially exact-qty matches) are made with full visibility instead of
+	# being scoped to whichever company happens to be processed first.
+	all_shipment_logs = frappe.db.get_all(
+		'AFN Order Shipment Log',
+		filters={'amazon_order_id': so_doc.amazon_order_id, 'has_exceptions': 0},
+		fields=['fc_code', 'item_code', 'warehouse', 'company', 'qty']
+	)
+
+	# item_code -> list of {warehouse, fc_code, company, remaining_qty}
+	# Keyed by (company, warehouse) so slots from different companies never merge.
+	log_consumption = {}
+	for log in all_shipment_logs:
+		item_map = log_consumption.setdefault(log.item_code, {})
+		key = (log.company, log.warehouse)
+		if key in item_map:
+			item_map[key]["remaining_qty"] += log.qty
+		else:
+			item_map[key] = {
+				"warehouse": log.warehouse,
+				"fc_code": log.fc_code,
+				"company": log.company,
+				"remaining_qty": log.qty
 			}
+	log_consumption = {
+		item_code: list(slot_map.values())
+		for item_code, slot_map in log_consumption.items()
+	}
 
-			amazon_promotion_discount = 0
-			for item in so_doc.items:
-				item_code = item.item_code
-				if item_code not in log_consumption:
-					continue
+	# --- Allocation planning pass: runs ONCE across all companies ---
+	allocations = {company: {"items": [], "discount": 0, "warehouse": None} for company in companies}
 
-				remaining_item_qty = item.qty  # total qty to fulfil for this SO item row
+	for item in so_doc.items:
+		item_code = item.item_code
+		if item_code not in log_consumption:
+			continue
 
-				for slot in log_consumption[item_code]:
-					if slot["remaining_qty"] <= 0 or remaining_item_qty <= 0:
-						continue
+		remaining_item_qty = item.qty
+		slots = log_consumption[item_code]
 
-					# How much can this warehouse slot fulfil?
-					fulfil_qty = min(slot["remaining_qty"], remaining_item_qty)
-
-					new_item = item.as_dict()
-					new_item.pop("name", "")
-					new_item.pop("idx", "")
-					new_item["qty"] = fulfil_qty
-					new_item["warehouse"] = slot["warehouse"]
-					new_item["fc_location"] = slot["fc_code"]
-
-					# Scale discount proportionally to the fulfilled qty
-					item_discount = new_item.get("amazon_promotion_discount", 0)
-					scaled_discount = (item_discount / item.qty) * fulfil_qty if item.qty else 0
-					new_item["amazon_promotion_discount"] = scaled_discount
-
-					new_so_doc.append("items", new_item)
-					warehouse = slot["warehouse"]
-					amazon_promotion_discount += scaled_discount
-
-					for tax in so_doc.taxes:
-						new_tax = tax.as_dict()
-						if item.amazon_order_item_id == new_tax.amazon_order_item_id:
-							new_tax.pop("name", "")
-							new_tax.pop("idx", "")
-							new_so_doc.append("taxes", new_tax)
-
-					# Deduct from both ends
-					slot["remaining_qty"] -= fulfil_qty
-					remaining_item_qty -= fulfil_qty
-
-			new_so_doc.company = company
-			new_so_doc.set_warehouse = warehouse if warehouse else so_doc.set_warehouse
-			new_so_doc.amazon_order_amount = 0
-			new_so_doc.discount_amount = amazon_promotion_discount
-			new_so_doc.has_multi_company_exception = 0
-			new_so_doc.ignore_fc_changes = 1
-			new_so_doc.is_split_order = 1
-			new_so_doc.handle_company_changes()
-			new_so_doc.insert(ignore_permissions=True)
-			new_so_doc.submit()
-			so_list.append(new_so_doc.name)
-
-		frappe.db.delete("Sales Order", sales_order)
-		frappe.db.delete("Amazon Failed Sync Record", {"amazon_order_id": so_doc.amazon_order_id})
-		frappe.msgprint(
-			_("Sales Order has been split into : {0}".format(", ".join(so_list))),
-			alert=1,
-			indicator="green"
+		# Priority: if some slot (any company) has remaining_qty exactly equal
+		# to this row's qty, allocate the whole row there before falling back
+		# to sequential/proportional consumption. E.g. row qty 4 vs slots
+		# [CompanyA: 3, CompanyB: 1] won't match (correctly falls through to
+		# the normal split logic below); row qty 3 vs [CompanyA: 3, CompanyB: 1]
+		# matches CompanyA cleanly instead of being fragmented.
+		exact_slot = next(
+			(s for s in slots if s["remaining_qty"] == remaining_item_qty and remaining_item_qty > 0),
+			None
 		)
-		return so_list
+		ordered_slots = (
+			[exact_slot] + [s for s in slots if s is not exact_slot]
+			if exact_slot else slots
+		)
+
+		for slot in ordered_slots:
+			if slot["remaining_qty"] <= 0 or remaining_item_qty <= 0:
+				continue
+
+			fulfil_qty = min(slot["remaining_qty"], remaining_item_qty)
+
+			new_item = item.as_dict()
+			new_item.pop("name", "")
+			new_item.pop("idx", "")
+			new_item["qty"] = fulfil_qty
+			new_item["warehouse"] = slot["warehouse"]
+			new_item["fc_location"] = slot["fc_code"]
+
+			company = slot["company"]
+			allocations[company]["items"].append((item, new_item))
+			allocations[company]["discount"] += new_item.get("amazon_promotion_discount", 0)
+			allocations[company]["warehouse"] = slot["warehouse"]
+
+			slot["remaining_qty"] -= fulfil_qty
+			remaining_item_qty -= fulfil_qty
+
+	# --- Build & insert one Sales Order per company from the plan ---
+	so_list = []
+	for company in companies:
+		alloc = allocations[company]
+		if not alloc["items"]:
+			continue
+
+		new_so_doc = frappe.new_doc("Sales Order")
+		new_so_doc.update(so_doc.as_dict())
+		new_so_doc.items = []
+		new_so_doc.taxes = []
+
+		for item, new_item in alloc["items"]:
+			new_so_doc.append("items", new_item)
+			for tax in so_doc.taxes:
+				new_tax = tax.as_dict()
+				if item.shipment_log_id == new_tax.shipment_log_id:
+					new_tax.pop("name", "")
+					new_tax.pop("idx", "")
+					new_so_doc.append("taxes", new_tax)
+
+		new_so_doc.company = company
+		new_so_doc.set_warehouse = alloc["warehouse"] or so_doc.set_warehouse
+		new_so_doc.amazon_order_amount = 0
+		new_so_doc.discount_amount = alloc["discount"]
+		new_so_doc.has_multi_company_exception = 0
+		new_so_doc.ignore_fc_changes = 1
+		new_so_doc.is_split_order = 1
+		new_so_doc.handle_company_changes()
+		new_so_doc.insert(ignore_permissions=True)
+		new_so_doc.submit()
+		so_list.append(new_so_doc.name)
+
+	frappe.db.delete("Sales Order", sales_order)
+	frappe.db.delete("Amazon Failed Sync Record", {"amazon_order_id": so_doc.amazon_order_id})
+	frappe.msgprint(
+		_("Sales Order has been split into : {0}".format(", ".join(so_list))),
+		alert=1,
+		indicator="green"
+	)
+	return so_list
+
+@frappe.whitelist()
+def split_item_with_taxes(sales_order):
+	'''
+		Splits the sales order based on item with taxes in case of FC orders with multiple companies in shipment logs
+	'''
+	if frappe.db.exists("Sales Order", sales_order):
+		so_doc = frappe.get_doc("Sales Order", sales_order)
+		from eseller_suite.eseller_suite.doctype.amazon_sp_api_settings.amazon_repository import get_order_shipment_charges
+		charges_and_fees = get_order_shipment_charges('98gq2qirqf', so_doc.amazon_order_id)
+		item_shipment_details = charges_and_fees.get("item_shipment_details", [])
+
+		from collections import defaultdict
+		shipment_map = defaultdict(list)
+		for d in item_shipment_details:
+			shipment_map[d["amazon_order_item_id"]].append(d)
+
+		updated_items = []
+
+		for item in so_doc.items:
+			shipments = shipment_map.get(item.amazon_order_item_id)
+
+			if not shipments:
+				updated_items.append(item.as_dict())
+				continue
+
+			total_shipment_qty = sum(s["qty"] for s in shipments)
+			if total_shipment_qty != item.qty:
+				frappe.msgprint(
+					f"Shipment qty ({total_shipment_qty}) != item qty ({item.qty}) "
+					f"for order_item_id {item.amazon_order_item_id}",
+					indicator="orange"
+				)
+
+			for shipment in shipments:
+				row = item.as_dict()
+				for f in ("name", "idx"):
+					row.pop(f, None)
+				row["qty"] = shipment["qty"]
+				row["shipment_log_id"] = shipment["shipment_log_id"]
+				row["amazon_promotion_discount"] = shipment["promotion_discount"]
+				row["amount"] = row["qty"] * row.get("rate", 0)
+				updated_items.append(row)
+
+		so_doc.set("items", [])
+		for row in updated_items:
+			so_doc.append("items", row)
+
+		so_doc.set("taxes", [])
+		for charge in charges_and_fees.get("charges"):
+			if charge:
+				so_doc.append("taxes", charge)
+
+		for fee in charges_and_fees.get("fees"):
+			if fee:
+				so_doc.append("taxes", fee)
+
+		for tds in charges_and_fees.get("tds"):
+			if tds:
+				so_doc.append("taxes", tds)
+
+		so_doc.save()

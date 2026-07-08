@@ -90,6 +90,7 @@
    "read_only": 1
   },
   {
+   "allow_on_submit": 1,
    "default": "0",
    "fieldname": "in_progress",
    "fieldtype": "Check",
@@ -132,7 +133,7 @@
    "link_fieldname": "cheque_no"
   }
  ],
- "modified": "2026-06-08 14:03:58.968775",
+ "modified": "2026-07-08 11:22:18.530288",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "Amazon Payment Entry",

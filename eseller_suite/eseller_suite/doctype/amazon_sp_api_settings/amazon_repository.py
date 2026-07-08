@@ -201,6 +201,7 @@ class AmazonRepository:
 			"service_fees": [],
 			"principal_amounts": {},
 			"additional_discount": 0,
+			"item_shipment_details": [],
 		}
 
 		if not (
@@ -235,6 +236,8 @@ class AmazonRepository:
 						if tds_list:
 							tdss = tds_list[0].get("TaxesWithheld", [])
 
+						shipment_log_id = '{0}-{1}-{2}'.format(seller_sku, qty, generate_random_string(4))
+
 						for charge in charges:
 							charge_type = charge.get("ChargeType")
 							amount = charge.get("ChargeAmount", {}).get(
@@ -250,6 +253,7 @@ class AmazonRepository:
 										"tax_amount": amount,
 										"description": f"{charge_type} for {seller_sku if seller_sku else order_id}",
 										"amazon_order_item_id":order_item_id,
+										"shipment_log_id": shipment_log_id
 									}
 								)
 							if charge_type == "Principal":
@@ -270,6 +274,7 @@ class AmazonRepository:
 										"tax_amount": amount,
 										"description": f"{fee_type} for {seller_sku if seller_sku else order_id}",
 										"amazon_order_item_id":order_item_id,
+										"shipment_log_id": shipment_log_id
 									}
 								)
 
@@ -287,14 +292,25 @@ class AmazonRepository:
 										"tax_amount": amount,
 										"description": f"{tds_type} for {seller_sku if seller_sku else order_id}",
 										"amazon_order_item_id":order_item_id,
+										"shipment_log_id": shipment_log_id
 									}
 								)
 
+						item_promotion_discount = 0
 						for promotion in promotion_list:
 							amount = promotion.get("PromotionAmount", {}).get(
 								"CurrencyAmount", 0
 							)
 							promotion_discount += float(amount)
+							item_promotion_discount += float(amount)
+
+						charges_and_fees.get("item_shipment_details").append({
+							"seller_sku": seller_sku,
+							"amazon_order_item_id": order_item_id,
+							"qty": qty,
+							"shipment_log_id": shipment_log_id,
+							"promotion_discount": abs(item_promotion_discount),
+						})
 
 			charges_and_fees["principal_amounts"] = principal_amounts
 			charges_and_fees["additional_discount"] = promotion_discount
@@ -315,6 +331,7 @@ class AmazonRepository:
 									"tax_amount": amount,
 									"description": f"{fee_type} for {seller_sku if seller_sku else order_id}",
 									"amazon_order_item_id":order_item_id,
+									"shipment_log_id": shipment_log_id
 								}
 							)
 
@@ -1819,7 +1836,6 @@ class AmazonRepository:
 	def get_catalog_items_instance(self) -> CatalogItems:
 		return CatalogItems(**self.instance_params)
 
-
 def to_iso_z(d):
 	# Accept either date (YYYY-MM-DD) or datetime
 	if isinstance(d, str):
@@ -1845,6 +1861,10 @@ def get_order(amz_setting_name, amazon_order_ids, run_si_submit_job=1) -> list:
 	ar = AmazonRepository(amz_setting_name)
 	return ar.get_order(amazon_order_ids, run_si_submit_job)
 
+@frappe.whitelist()
+def get_order_shipment_charges(amz_setting_name, amazon_order_ids) -> list:
+	ar = AmazonRepository(amz_setting_name)
+	return ar.get_charges_and_fees(amazon_order_ids)
 
 @frappe.whitelist()
 def create_stock_entry(sales_invoice):
@@ -1906,3 +1926,13 @@ def create_stock_entries_for_sis(names):
 	names = json.loads(names)
 	for name in names:
 		create_stock_entry(name)
+
+def generate_random_string(length=4):
+	'''Generates a random string of specified length consisting of letters and digits.'''
+	import random
+	import string
+
+	characters = string.ascii_letters + string.digits
+	random_string = ''.join(random.choices(characters, k=length))
+
+	return random_string
