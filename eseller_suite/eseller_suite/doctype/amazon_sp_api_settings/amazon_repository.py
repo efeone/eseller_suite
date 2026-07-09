@@ -1048,6 +1048,7 @@ class AmazonRepository:
 					"return_against": si,
 				})
 			return_created = False
+			failed_sync_records_return = { 'payload': [] }
 			for refund in refunds:
 				if not frappe.db.exists(
 					"Sales Invoice",
@@ -1123,26 +1124,18 @@ class AmazonRepository:
 						limit=1,
 					)
 					if not existing_records:
-						failed_sync_record = frappe.new_doc("Amazon Failed Sync Record")
-						failed_sync_record.amazon_order_id = order_id
-						failed_sync_record.remarks = remarks
-						failed_sync_record.payload = frappe.as_json(refund)
-						failed_sync_record.is_return_exception = 1
+						failed_sync_records_return['amazon_order_id'] = order_id
+						failed_sync_records_return['remarks'] = remarks
+						failed_sync_records_return['is_return_exception'] = 1
 						if refund.get("posting_date"):
-							failed_sync_record.posting_date = dateutil.parser.parse(
-								refund.get("posting_date")
-							).strftime("%Y-%m-%d")
+							failed_sync_records_return['posting_date'] = dateutil.parser.parse(refund.get("posting_date")).strftime("%Y-%m-%d")
 						if refund.get("order_date"):
-							failed_sync_record.amazon_order_date = (
-								dateutil.parser.parse(
-									refund.get("order_date")
-								).strftime("%Y-%m-%d")
-							)
+							failed_sync_records_return['amazon_order_date'] = dateutil.parser.parse(refund.get("order_date")).strftime("%Y-%m-%d")
 						if refund.get("amazon_order_amount"):
-							failed_sync_record.amazon_order_amount = refund.get(
-								"amazon_order_amount"
-							)
-						failed_sync_record.save(ignore_permissions=True)
+							failed_sync_records_return['amazon_order_amount'] = refund.get("amazon_order_amount")
+						existing_payload = failed_sync_records_return.get('payload', [])
+						existing_payload.append(refund)
+						failed_sync_records_return['payload'] = existing_payload
 					continue
 
 				existing_returns = tuple(
@@ -1265,6 +1258,27 @@ class AmazonRepository:
 					return_si.disable_rounded_total = 1
 					return_si.update_outstanding_for_self = 1
 					return_si.update_billed_amount_in_sales_order = 1
+
+			#Process Return Invoice Data for failed sync records
+			if failed_sync_records_return:
+				if not frappe.db.exists("Amazon Failed Sync Record", {
+					"amazon_order_id": order_id,
+					"remarks": failed_sync_records_return.get('remarks'),
+					"is_return_exception": 1
+				}):
+					failed_sync_record = frappe.new_doc("Amazon Failed Sync Record")
+					failed_sync_record.amazon_order_id = order_id
+					failed_sync_record.remarks = failed_sync_records_return.get('remarks')
+					failed_sync_record.is_return_exception = 1
+					if failed_sync_records_return.get('posting_date'):
+						failed_sync_record.posting_date = failed_sync_records_return.get('posting_date')
+					if failed_sync_records_return.get('amazon_order_date'):
+						failed_sync_record.amazon_order_date = failed_sync_records_return.get('amazon_order_date')
+					if failed_sync_records_return.get('amazon_order_amount'):
+						failed_sync_record.amazon_order_amount = failed_sync_records_return.get('amazon_order_amount')
+					if failed_sync_records_return.get('payload'):
+						failed_sync_record.payload = frappe.as_json(failed_sync_records_return.get('payload'))
+					failed_sync_record.save(ignore_permissions=True)
 
 			# Only insert and submit if items were created
 			if return_created and len(return_si.items) > 0:

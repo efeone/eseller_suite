@@ -178,74 +178,120 @@ class AmazonFailedSyncRecord(Document):
 			Method to create exceptional Credit Notes, without Sales Invoice
 		'''
 		so = frappe.db.get_value('Sales Order', { 'amazon_order_id':self.amazon_order_id }, 'name')
-		data = json.loads(self.payload)
+		full_data = json.loads(self.payload)
+		grouped_data = group_returns_by_posting_datetime(full_data)
 		if so:
-			return_si = make_sales_invoice(source_name=so, target_doc=None, ignore_permissions=True)
-			return_si.set_posting_time = 1
-			return_si.posting_date = self.posting_date
-			return_si.posting_time = frappe.utils.get_time(data.get('posting_date'))
-			return_si.update_stock = 1
-			return_si.is_return = 1
-			# items
-			return_si.items = []
-			for row in data.get('items'):
-				return_si.append('items', {
-					'item_code': row.get('item_code'),
-					'qty': abs(row.get('qty')) * -1,
-					'rate': abs(row.get('amount'))/abs(row.get('qty')),
-					'amount': abs(row.get('amount')) * -1,
-					'sales_order': so,
-				})
-			# taxes and charges
-			return_si.taxes = []
-			for row in data.get('charges'):
-				return_si.append('taxes', {
-					'account_head': row.get('account_head'),
-					'description': row.get('description'),
-					'tax_amount': row.get('tax_amount'),
-					'charge_type': row.get('charge_type'),
-				})
-			for row in data.get('fees'):
-				return_si.append('taxes', {
-					'account_head': row.get('account_head'),
-					'description': row.get('description'),
-					'tax_amount': row.get('tax_amount'),
-					'charge_type': row.get('charge_type'),
-				})
-			for row in data.get('tds'):
-				return_si.append('taxes', {
-					'account_head': row.get('account_head'),
-					'description': row.get('description'),
-					'tax_amount': row.get('tax_amount'),
-					'charge_type': row.get('charge_type'),
-				})
+			for data in grouped_data:
+				return_si = make_sales_invoice(source_name=so, target_doc=None, ignore_permissions=True)
+				return_si.set_posting_time = 1
+				return_si.posting_date = frappe.utils.getdate(data.get('posting_date'))
+				return_si.posting_time = frappe.utils.get_time(data.get('posting_date'))
+				return_si.update_stock = 1
+				return_si.is_return = 1
+				# items
+				return_si.items = []
+				for row in data.get('items'):
+					return_si.append('items', {
+						'item_code': row.get('item_code'),
+						'qty': abs(row.get('qty')) * -1,
+						'rate': abs(row.get('amount'))/abs(row.get('qty')),
+						'amount': abs(row.get('amount')) * -1,
+						'sales_order': so,
+					})
+				# taxes and charges
+				return_si.taxes = []
+				for row in data.get('charges'):
+					return_si.append('taxes', {
+						'account_head': row.get('account_head'),
+						'description': row.get('description'),
+						'tax_amount': row.get('tax_amount'),
+						'charge_type': row.get('charge_type'),
+					})
+				for row in data.get('fees'):
+					return_si.append('taxes', {
+						'account_head': row.get('account_head'),
+						'description': row.get('description'),
+						'tax_amount': row.get('tax_amount'),
+						'charge_type': row.get('charge_type'),
+					})
+				for row in data.get('tds'):
+					return_si.append('taxes', {
+						'account_head': row.get('account_head'),
+						'description': row.get('description'),
+						'tax_amount': row.get('tax_amount'),
+						'charge_type': row.get('charge_type'),
+					})
 
-			# Handling Company changes
-			company_abr, default_cc = frappe.db.get_value('Company', return_si.company, ['abbr', 'cost_center'])
-			for row in return_si.items:
-				if row.cost_center:
-					current_cc = row.cost_center
-					new_cc = re.sub(r"-[^-]*$", f"- {company_abr}", current_cc)
-					row.cost_center = new_cc if frappe.db.exists('Cost Center', new_cc) else default_cc
-				if row.item_tax_template:
-					current_tax_temp = row.item_tax_template
-					new_tax_temp = re.sub(r"-[^-]*$", f"- {company_abr}", current_tax_temp)
-					row.item_tax_template = new_tax_temp if frappe.db.exists('Item Tax Template', new_tax_temp) else ''
-			return_si.packed_items = []
+				# Handling Company changes
+				company_abr, default_cc = frappe.db.get_value('Company', return_si.company, ['abbr', 'cost_center'])
+				for row in return_si.items:
+					if row.cost_center:
+						current_cc = row.cost_center
+						new_cc = re.sub(r"-[^-]*$", f"- {company_abr}", current_cc)
+						row.cost_center = new_cc if frappe.db.exists('Cost Center', new_cc) else default_cc
+					if row.item_tax_template:
+						current_tax_temp = row.item_tax_template
+						new_tax_temp = re.sub(r"-[^-]*$", f"- {company_abr}", current_tax_temp)
+						row.item_tax_template = new_tax_temp if frappe.db.exists('Item Tax Template', new_tax_temp) else ''
+				return_si.packed_items = []
 
-			for row in return_si.taxes:
-				if row.cost_center:
-					current_cc = row.cost_center
-					new_cc = re.sub(r"-[^-]*$", f"- {company_abr}", current_cc)
-					row.cost_center = new_cc if frappe.db.exists('Cost Center', new_cc) else default_cc
-				if row.account_head:
-					row.account_head = get_account_head(row.account_head, return_si.company)
+				for row in return_si.taxes:
+					if row.cost_center:
+						current_cc = row.cost_center
+						new_cc = re.sub(r"-[^-]*$", f"- {company_abr}", current_cc)
+						row.cost_center = new_cc if frappe.db.exists('Cost Center', new_cc) else default_cc
+					if row.account_head:
+						row.account_head = get_account_head(row.account_head, return_si.company)
 
-			return_si.additional_discount_percentage = 0
-			return_si.discount_amount = 0
-			return_si.save(ignore_permissions=True)
-			return_si.submit()
+				return_si.additional_discount_percentage = 0
+				return_si.discount_amount = 0
+				return_si.save(ignore_permissions=True)
+				return_si.submit()
 
-			#Close respective Sales Order
-			frappe.db.set_value('Sales Order', so, 'status', 'Closed')
-			frappe.msgprint('Credit Note Created: <a href="{0}">{1}</a>'.format(get_url_to_form(return_si.doctype, return_si.name), return_si.name), alert=True, indicator='green')
+				#Close respective Sales Order
+				frappe.db.set_value('Sales Order', so, 'status', 'Closed')
+				frappe.msgprint('Credit Note Created: <a href="{0}">{1}</a>'.format(get_url_to_form(return_si.doctype, return_si.name), return_si.name), alert=True, indicator='green')
+
+def group_returns_by_posting_datetime(payload):
+	grouped_returns = []
+	grouped_by_posting_date = {}
+
+	for refund in payload:
+		items = refund.get("items") or []
+		charges = refund.get("charges") or []
+		fees = refund.get("fees") or []
+		tds = refund.get("tds") or []
+
+		if items:
+			posting_date = refund.get("posting_date")
+
+			if posting_date not in grouped_by_posting_date:
+				group = {
+					"amazon_order_amount": refund.get("amazon_order_amount"),
+					"charges": [],
+					"fees": [],
+					"items": [],
+					"tds": [],
+					"order_date": refund.get("order_date"),
+					"posting_date": posting_date
+				}
+
+				grouped_by_posting_date[posting_date] = group
+				grouped_returns.append(group)
+
+			else:
+				group = grouped_by_posting_date[posting_date]
+
+		else:
+			# No items: add charges/fees/tds to previous invoice
+			if not grouped_returns:
+				continue
+
+			group = grouped_returns[-1]
+
+		group["items"].extend(items)
+		group["charges"].extend(charges)
+		group["fees"].extend(fees)
+		group["tds"].extend(tds)
+
+	return grouped_returns
