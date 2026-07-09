@@ -312,8 +312,7 @@ function get_pending_order_ids(frm) {
 		...new Set(
 			(frm.doc.payment_details || [])
 				.filter(row =>
-					cint(row.ready_to_process) === 0 &&
-					cint(row.ignore_transaction) === 0
+					cint(row.ready_to_process) === 0
 				)
 				.map(row => row.order_id)
 				.filter(Boolean)
@@ -345,8 +344,7 @@ async function render_reconciliation_ui(frm, dialog, amazon_order_id) {
 
 	let payment_rows = (frm.doc.payment_details || []).filter(row =>
 		row.order_id === amazon_order_id &&
-		cint(row.ready_to_process) === 0 &&
-		cint(row.ignore_transaction) === 0
+		cint(row.ready_to_process) === 0
 	);
 
 	/*
