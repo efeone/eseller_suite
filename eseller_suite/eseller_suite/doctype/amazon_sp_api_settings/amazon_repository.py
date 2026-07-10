@@ -1183,17 +1183,15 @@ class AmazonRepository:
 
 				# Process items for this refund
 				refund_items_processed = False
+				returned_qty_map = {}
 				if existing_returns:
 					returned_qty_rows = frappe.db.get_all(
 						"Sales Invoice Item",
 						filters={"parent": ["in", existing_returns]},
 						fields=["item_code", "qty"]
 					)
-					returned_qty_map = {}
 					for row in returned_qty_rows:
 						returned_qty_map[row.item_code] = returned_qty_map.get(row.item_code, 0) + (row.qty or 0)
-				else:
-					returned_qty_map = {}
 
 				si_items_data = frappe.db.get_all(
 					"Sales Invoice Item",
@@ -1260,7 +1258,7 @@ class AmazonRepository:
 					return_si.update_billed_amount_in_sales_order = 1
 
 			#Process Return Invoice Data for failed sync records
-			if failed_sync_records_return:
+			if failed_sync_records_return.get('remarks') and failed_sync_records_return.get('payload'):
 				if not frappe.db.exists("Amazon Failed Sync Record", {
 					"amazon_order_id": order_id,
 					"remarks": failed_sync_records_return.get('remarks'),
