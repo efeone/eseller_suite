@@ -312,6 +312,18 @@ class AmazonPaymentEntry(Document):
 					if not jv_row.get("account", None) and not jv_row.get("party", None):
 						frappe.throw("Please re-fetch due to missing account or party in row # {0}".format(row.idx))
 
+					# Handling shipping charges seperately
+					if row.transaction_type == 'Amazon Easy Ship Charges':
+						shiping_charges_account = get_account_based_on_company(company, 'shipping_charges_account')
+						if not shiping_charges_account:
+							frappe.throw("Please set Amazon Shipping Charges Account for company {0} in eSeller Settings".format(company))
+						jv_row.account = shiping_charges_account
+						jv_row.user_remark = 'Amazon Easy Ship Charges for Order ID: {0}'.format(row.order_id)
+						jv_row.reference_type = ''
+						jv_row.reference_name = ''
+						jv_row.party_type = ''
+						jv_row.party = ''
+
 				elif frappe.db.get_single_value("eSeller Settings", "use_reserve_lines_in_amazon_payment_entry"):
 					reserve_jv_row = jv_doc.append('accounts')
 					reserve_jv_row.user_remark = row.product_details
@@ -460,7 +472,8 @@ def get_account_based_on_company(company, account_type):
 		'other_income_account',
 		'order_cancellation_account',
 		'mop_account',
-		'reimbursement_income_account'
+		'reimbursement_income_account',
+		'shipping_charges_account'
 	]
 	if account_type in account_types:
 		account = frappe.db.get_value('Amazon Payment Account', { 'company': company, 'parent': 'eSeller Settings', }, account_type)
