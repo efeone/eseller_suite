@@ -97,7 +97,8 @@ function default_account_filters(frm) {
 		'other_expenses_account',
 		'order_cancellation_account',
 		'amazon_reserve_income_account',
-		'amazon_reserve_expense_account'
+		'amazon_reserve_expense_account',
+		'shipping_charges_account'
 	];
 
 	account_fields.forEach(fieldname => {

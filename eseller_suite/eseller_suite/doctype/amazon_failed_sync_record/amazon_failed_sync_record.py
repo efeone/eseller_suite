@@ -197,6 +197,7 @@ class AmazonFailedSyncRecord(Document):
 						'rate': abs(row.get('amount'))/abs(row.get('qty')),
 						'amount': abs(row.get('amount')) * -1,
 						'sales_order': so,
+						'allow_zero_valuation_rate': 1,
 					})
 				# taxes and charges
 				return_si.taxes = []
