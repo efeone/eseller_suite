@@ -1,0 +1,66 @@
+{
+ "add_total_row": 0,
+ "add_translate_data": 0,
+ "columns": [
+  {
+   "fieldname": "transaction_type",
+   "fieldtype": "Data",
+   "label": "Transaction Type",
+   "width": 0
+  },
+  {
+   "fieldname": "order_id",
+   "fieldtype": "Data",
+   "label": "Order ID",
+   "width": 0
+  },
+  {
+   "fieldname": "sales_invoice",
+   "fieldtype": "Link",
+   "label": "Sales Invoice",
+   "options": "Sales Invoice",
+   "width": 200
+  },
+  {
+   "fieldname": "return_sales_invoice",
+   "fieldtype": "Link",
+   "label": "Return Sales Invoice",
+   "options": "Sales Invoice",
+   "width": 200
+  },
+  {
+   "fieldname": "total",
+   "fieldtype": "Currency",
+   "label": "Total",
+   "width": 0
+  }
+ ],
+ "creation": "2026-07-13 16:47:01.896721",
+ "disable_prepared_report_automation": 0,
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "filters": [],
+ "idx": 0,
+ "is_standard": "Yes",
+ "letter_head": null,
+ "modified": "2026-07-13 16:49:46.453511",
+ "modified_by": "Administrator",
+ "module": "eSeller Suite",
+ "name": "Missing or Unreconciled Returns",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "query": "SELECT\n    t1.transaction_type,\n    t1.order_id,\n    t1.sales_invoice,\n    t1.return_sales_invoice,\n    t1.total\nFROM\n    `tabAmazon Payment Entry Item` t1\nINNER JOIN\n    `tabAmazon Payment Entry` pe ON pe.name = t1.parent\nWHERE\n    t1.transaction_type = 'Refund'\n    AND t1.return_sales_invoice IS NOT NULL\n    AND t1.return_sales_invoice != ''\n    AND pe.docstatus != 2\n    AND t1.return_sales_invoice IN (\n        SELECT t2.return_sales_invoice\n        FROM `tabAmazon Payment Entry Item` t2\n        INNER JOIN `tabAmazon Payment Entry` pe2 ON pe2.name = t2.parent\n        WHERE t2.transaction_type = 'Refund'\n          AND t2.return_sales_invoice IS NOT NULL\n          AND t2.return_sales_invoice != ''\n          AND pe2.docstatus != 2\n        GROUP BY t2.return_sales_invoice\n        HAVING COUNT(*) > 1\n    )\nORDER BY\n    t1.return_sales_invoice;",
+ "ref_doctype": "Sales Invoice",
+ "report_name": "Missing or Unreconciled Returns",
+ "report_type": "Query Report",
+ "roles": [
+  {
+   "role": "Accounts Manager"
+  },
+  {
+   "role": "Accounts User"
+  }
+ ],
+ "timeout": 0
+}
