@@ -319,6 +319,16 @@ class AmazonPaymentEntry(Document):
 							frappe.throw("Please set Amazon Shipping Charges Account for company {0} in eSeller Settings".format(company))
 						jv_row.account = shiping_charges_account
 						jv_row.user_remark = 'Amazon Easy Ship Charges for Order ID: {0}'.format(row.order_id)
+
+					# Handling fulfilment fee refund seperately
+					if row.transaction_type == 'Fulfillment Fee Refund':
+						fulfilment_fee_refund_account = get_account_based_on_company(company, 'fulfilment_fee_refund_account')
+						if not fulfilment_fee_refund_account:
+							frappe.throw("Please set Fulfillment Fee Refund Account for company {0} in eSeller Settings".format(company))
+						jv_row.account = fulfilment_fee_refund_account
+						jv_row.user_remark = 'Fulfillment Fee Refund for Order ID: {0}'.format(row.order_id)
+
+					if row.transaction_type in ['Amazon Easy Ship Charges', 'Fulfillment Fee Refund']:
 						jv_row.reference_type = ''
 						jv_row.reference_name = ''
 						jv_row.party_type = ''
@@ -473,7 +483,8 @@ def get_account_based_on_company(company, account_type):
 		'order_cancellation_account',
 		'mop_account',
 		'reimbursement_income_account',
-		'shipping_charges_account'
+		'shipping_charges_account',
+		'fulfilment_fee_refund_account'
 	]
 	if account_type in account_types:
 		account = frappe.db.get_value('Amazon Payment Account', { 'company': company, 'parent': 'eSeller Settings', }, account_type)
