@@ -226,6 +226,10 @@ class AmazonPaymentEntry(Document):
 							has_changes = True
 				if row.amazon_expense_account:
 					row.company = frappe.db.get_value('Account', row.amazon_expense_account, 'company')
+				if row.transaction_type in ['Amazon Easy Ship Charges', 'Fulfillment Fee Refund']:
+					if not row.ready_to_process and not row.ignore_transaction:
+						row.ready_to_process = 1
+						has_changes = 1
 		if has_changes:
 			self.save()
 		return 1
@@ -309,8 +313,9 @@ class AmazonPaymentEntry(Document):
 						jv_row.debit_in_account_currency = abs(float(row.total))
 						total_debit += abs(float(row.total))
 
-					if not jv_row.get("account", None) and not jv_row.get("party", None):
-						frappe.throw("Please re-fetch due to missing account or party in row # {0}".format(row.idx))
+					if row.transaction_type not in ['Amazon Easy Ship Charges', 'Fulfillment Fee Refund']:
+						if not jv_row.get("account", None) and not jv_row.get("party", None):
+							frappe.throw("Please re-fetch due to missing account or party in row # {0}".format(row.idx))
 
 					# Handling shipping charges seperately
 					if row.transaction_type == 'Amazon Easy Ship Charges':
