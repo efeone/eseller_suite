@@ -178,10 +178,23 @@ class AmazonFailedSyncRecord(Document):
 			Method to create exceptional Credit Notes, without Sales Invoice
 		'''
 		so = frappe.db.get_value('Sales Order', { 'amazon_order_id':self.amazon_order_id }, 'name')
-		full_data = json.loads(self.payload)
-		grouped_data = group_returns_by_posting_datetime(full_data)
+		grouped_data = json.loads(self.payload)
 		if so:
+			item_warehouse = ''
+			if frappe.db.get_value('Sales Order', so, 'set_warehouse'):
+				item_warehouse = frappe.db.get_value('Sales Order', so, 'set_warehouse')
 			for data in grouped_data:
+				if data.get('items', []):
+					refund_amazon_order_item_id = data.get('items', [])[0].get('amazon_order_item_id', '')
+					if refund_amazon_order_item_id:
+						so = get_so_id_from_item_id(self.amazon_order_id, refund_amazon_order_item_id)
+						if frappe.db.get_value('Sales Order Item', {
+							'parent':so, 'amazon_order_item_id':refund_amazon_order_item_id
+						}, 'warehouse'):
+							item_warehouse = frappe.db.get_value('Sales Order Item', {
+							'parent':so,
+							'amazon_order_item_id':refund_amazon_order_item_id,
+						}, 'warehouse')
 				return_si = make_sales_invoice(source_name=so, target_doc=None, ignore_permissions=True)
 				return_si.set_posting_time = 1
 				return_si.posting_date = frappe.utils.getdate(data.get('posting_date'))
@@ -198,6 +211,8 @@ class AmazonFailedSyncRecord(Document):
 						'amount': abs(row.get('amount')) * -1,
 						'sales_order': so,
 						'allow_zero_valuation_rate': 1,
+						'amazon_order_item_id': row.get('amazon_order_item_id', ''),
+						'warehouse': item_warehouse
 					})
 				# taxes and charges
 				return_si.taxes = []
@@ -253,46 +268,23 @@ class AmazonFailedSyncRecord(Document):
 				frappe.db.set_value('Sales Order', so, 'status', 'Closed')
 				frappe.msgprint('Credit Note Created: <a href="{0}">{1}</a>'.format(get_url_to_form(return_si.doctype, return_si.name), return_si.name), alert=True, indicator='green')
 
-def group_returns_by_posting_datetime(payload):
-	grouped_returns = []
-	grouped_by_posting_date = {}
+def get_so_id_from_item_id(order_id, amazon_order_item_id):
+	'''
+		Method to get Sales Order ID using order_id and order_item_id
+	'''
+	result = frappe.db.sql("""
+		SELECT
+			so.name
+		FROM
+			`tabSales Order` so
+		INNER JOIN
+			`tabSales Order Item` soi
+			ON soi.parent = so.name
+		WHERE
+			so.amazon_order_id = %s
+			AND soi.amazon_order_item_id = %s
+			AND so.docstatus = 1
+		LIMIT 1
+	""", (order_id, amazon_order_item_id))
 
-	for refund in payload:
-		items = refund.get("items") or []
-		charges = refund.get("charges") or []
-		fees = refund.get("fees") or []
-		tds = refund.get("tds") or []
-
-		if items:
-			posting_date = refund.get("posting_date")
-
-			if posting_date not in grouped_by_posting_date:
-				group = {
-					"amazon_order_amount": refund.get("amazon_order_amount"),
-					"charges": [],
-					"fees": [],
-					"items": [],
-					"tds": [],
-					"order_date": refund.get("order_date"),
-					"posting_date": posting_date
-				}
-
-				grouped_by_posting_date[posting_date] = group
-				grouped_returns.append(group)
-
-			else:
-				group = grouped_by_posting_date[posting_date]
-
-		else:
-			# No items: add charges/fees/tds to previous invoice
-			if not grouped_returns:
-				continue
-
-			group = grouped_returns[-1]
-
-		group["items"].extend(items)
-		group["charges"].extend(charges)
-		group["fees"].extend(fees)
-		group["tds"].extend(tds)
-
-	return grouped_returns
+	return result[0][0] if result else None

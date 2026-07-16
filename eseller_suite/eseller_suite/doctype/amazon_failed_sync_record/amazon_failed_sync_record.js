@@ -63,7 +63,7 @@ function handle_custom_buttons(frm) {
 		// Return invoice creation
 		if(frm.doc.is_return_exception){
 			frappe.db.get_single_value('eSeller Settings', 'opening_date').then(opening_date => {
-				if (opening_date && frm.doc.posting_date > opening_date) {
+				if (opening_date && frm.doc.posting_date >= opening_date) {
 					frappe.db.get_value('Sales Invoice', { amazon_order_id: frm.doc.amazon_order_id, 'docstatus':1 }, 'name').then(r => {
 						// checking if the adjustment so is already created from another source
 						if (!r.message.name) {

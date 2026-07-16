@@ -465,6 +465,7 @@ def make_sales_invoice(source_name, target_doc=None, ignore_permissions=False):
 				"field_map": {
 					"name": "so_detail",
 					"parent": "sales_order",
+					"amazon_order_item_id": "amazon_order_item_id"
 				},
 				"postprocess": update_item,
 				"condition": lambda doc: doc.qty

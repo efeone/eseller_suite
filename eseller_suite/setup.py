@@ -460,7 +460,15 @@ def get_sales_invoice_custom_fields():
 				"read_only": 1,
 				"no_copy": 1,
 				"in_list_view":1
-			}
+			},
+			{
+				"fieldname": "amazon_order_item_id",
+				"fieldtype": "Data",
+				"label": "Amazon Order Item ID",
+				"insert_after": "item_code",
+				"read_only": 1,
+				"no_copy": 1,
+			},
 		]
 	}
 

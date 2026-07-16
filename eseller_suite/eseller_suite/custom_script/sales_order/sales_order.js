@@ -3,7 +3,9 @@ frappe.ui.form.on('Sales Order', {
 		if (frm.doc.amazon_order_id) {
 			frm.disable_form();
 			frm.disable_save();
-			$('.custom-actions').hide()
+			if (!frappe.user.has_role('System Manager')) {
+				$('.custom-actions').hide()
+			}
 		}
 		handle_multi_company_btn(frm);
 	}

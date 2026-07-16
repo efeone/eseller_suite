@@ -821,9 +821,6 @@ class AmazonRepository:
 				refund_event_list = financial_events_payload.get(
 					"FinancialEvents", {}
 				).get("RefundEventList", [])
-				service_fee_event_list = financial_events_payload.get(
-					"FinancialEvents", {}
-				).get("ServiceFeeEventList", [])
 				next_token = financial_events_payload.get("NextToken")
 
 				seller_sku = ""
@@ -887,9 +884,8 @@ class AmazonRepository:
 										{
 											"item_code": item_code,
 											"qty": refund_item.get("QuantityShipped"),
-											"amount": charge.get(
-												"ChargeAmount", {}
-											).get("CurrencyAmount", 0),
+											"amount": charge.get("ChargeAmount", {}).get("CurrencyAmount", 0),
+											"amazon_order_item_id": refund_item.get("OrderAdjustmentItemId")
 										}
 									)
 
@@ -929,38 +925,6 @@ class AmazonRepository:
 
 							refund_events.append(charges_and_fees)
 
-				for service_fee in service_fee_event_list:
-					if service_fee:
-						charges_and_fees = {
-							"posting_date": "",
-							"items": [],
-							"charges": [],
-							"fees": [],
-							"tds": [],
-							"amazon_order_amount": amazon_order_amount,
-							"order_date": order_date,
-						}
-
-						for service_fee_item in service_fee.get("FeeList", []):
-							fee_type = service_fee_item.get("FeeType")
-							amount = service_fee_item.get("FeeAmount", {}).get(
-								"CurrencyAmount", 0
-							)
-
-							if float(amount) != 0:
-								fee_account = self.get_account(fee_type)
-								description = f"{fee_type} for {seller_sku if seller_sku else order_id}"
-								charges_and_fees["fees"].append(
-									{
-										"charge_type": "Actual",
-										"account_head": fee_account,
-										"tax_amount": amount,
-										"description": description,
-									}
-								)
-
-						refund_events.append(charges_and_fees)
-
 				if not next_token:
 					break
 
@@ -979,7 +943,8 @@ class AmazonRepository:
 		company = self.amz_setting.company
 		so_id = None
 		so_docstatus = 0
-		refunds = get_refunds(self, order_id, order_date, amazon_order_amount, fulfillment_channel)
+		unformated_refunds = get_refunds(self, order_id, order_date, amazon_order_amount, fulfillment_channel)
+		refunds = group_returns_by_posting_datetime(unformated_refunds)
 
 		items = self.get_order_items(order_id)
 		so_result = frappe.db.get_value(
@@ -1031,25 +996,11 @@ class AmazonRepository:
 						message="Exception: {1}".format(existing_return_si, str(e))
 					)
 					return so_id
-			return_si = frappe.new_doc("Sales Invoice")
-			if existing_return_si:
-				return_si.amended_from = existing_return_si
-			# If there is a draft return invoice for the same order, delete it to avoid duplication
-			elif frappe.db.exists( "Sales Invoice", {
-					"amazon_order_id": order_id,
-					"docstatus": 0,
-					"is_return": 1,
-					"return_against": si,
-				}):
-				frappe.db.delete("Sales Invoice", {
-					"amazon_order_id": order_id,
-					"docstatus": 0,
-					"is_return": 1,
-					"return_against": si,
-				})
+
 			return_created = False
 			failed_sync_records_return = { 'payload': [] }
 			for refund in refunds:
+				return_si = frappe.new_doc("Sales Invoice")
 				if not frappe.db.exists(
 					"Sales Invoice",
 					{"amazon_order_id": order_id, "docstatus": 1, "is_return": 0},
@@ -1087,11 +1038,14 @@ class AmazonRepository:
 											)
 										)
 
-				# First check for submitted invoice
-				si = frappe.db.get_value(
-					"Sales Invoice",
-					{"amazon_order_id": order_id, "docstatus": 1, "is_return": 0},
-				)
+				sis = frappe.db.get_all("Sales Invoice", {"amazon_order_id": order_id, "docstatus": 1, "is_return": 0}, pluck='name')
+				if len(sis)>1:
+					if refund.get('items', []):
+						refund_amazon_order_item_id = refund.get('items', [])[0].get('amazon_order_item_id', '')
+						if refund_amazon_order_item_id:
+							si = get_sales_invoice_id_from_item_id(order_id, refund_amazon_order_item_id)
+							if get_so_id_from_si(si):
+								so_id = get_so_id_from_si(si)
 
 				# If not found, check for draft invoice
 				if not si:
@@ -1213,6 +1167,7 @@ class AmazonRepository:
 
 					returned_qty = returned_qty_map.get(actual_item, 0)
 					item_qty = float(item.get("qty") or 0)
+					amazon_order_item_id = item.get("amazon_order_item_id", '')
 					item_amount = float(item.get("amount") or 0)
 					si_item = si_item_map.get(actual_item)
 					if not si_item:
@@ -1228,6 +1183,7 @@ class AmazonRepository:
 							"rate": rate,
 							"sales_order": so_id,
 							"sales_invoice_item": si_item.name,
+							"amazon_order_item_id": amazon_order_item_id
 						}
 						if original_item_hsn:
 							return_item["gst_hsn_code"] = original_item_hsn
@@ -1257,6 +1213,30 @@ class AmazonRepository:
 					return_si.update_outstanding_for_self = 1
 					return_si.update_billed_amount_in_sales_order = 1
 
+				# Only insert and submit if items were created
+				if return_created and len(return_si.items) > 0:
+					company_abr, default_cc = frappe.db.get_value('Company', return_si.company, ['abbr', 'cost_center'])
+					for row in return_si.taxes:
+						if row.cost_center:
+							current_cc = row.cost_center
+							new_cc = re.sub(r"-[^-]*$", f"- {company_abr}", current_cc)
+							row.cost_center = new_cc if frappe.db.exists('Cost Center', new_cc) else default_cc
+						if row.account_head:
+							row.account_head = get_account_head(row.account_head, return_si.company)
+					try:
+						return_si.insert(ignore_permissions=True)
+						return_si.submit()
+					except Exception as e:
+						error_msg = str(e)
+						# Enhance HSN/SAC errors with item information
+						enhanced_error = self.enhance_hsn_error_with_items(
+							error_msg, return_si
+						)
+						frappe.log_error(
+							title="Error creating Return Invoice",
+							message=f"Order ID: {order_id or 'None'}, Error: {enhanced_error}",
+						)
+
 			#Process Return Invoice Data for failed sync records
 			if failed_sync_records_return.get('remarks') and failed_sync_records_return.get('payload'):
 				if not frappe.db.exists("Amazon Failed Sync Record", {
@@ -1277,30 +1257,6 @@ class AmazonRepository:
 					if failed_sync_records_return.get('payload'):
 						failed_sync_record.payload = frappe.as_json(failed_sync_records_return.get('payload'))
 					failed_sync_record.save(ignore_permissions=True)
-
-			# Only insert and submit if items were created
-			if return_created and len(return_si.items) > 0:
-				company_abr, default_cc = frappe.db.get_value('Company', return_si.company, ['abbr', 'cost_center'])
-				for row in return_si.taxes:
-					if row.cost_center:
-						current_cc = row.cost_center
-						new_cc = re.sub(r"-[^-]*$", f"- {company_abr}", current_cc)
-						row.cost_center = new_cc if frappe.db.exists('Cost Center', new_cc) else default_cc
-					if row.account_head:
-						row.account_head = get_account_head(row.account_head, return_si.company)
-				try:
-					return_si.insert(ignore_permissions=True)
-					return_si.submit()
-				except Exception as e:
-					error_msg = str(e)
-					# Enhance HSN/SAC errors with item information
-					enhanced_error = self.enhance_hsn_error_with_items(
-						error_msg, return_si
-					)
-					frappe.log_error(
-						title="Error creating Return Invoice",
-						message=f"Order ID: {order_id or 'None'}, Error: {enhanced_error}",
-					)
 
 			return so_id
 
@@ -1481,9 +1437,7 @@ class AmazonRepository:
 					for service_fee in charges_and_fees.get("service_fees"):
 						if service_fee:
 							mfn_postage_fee_account_head = frappe.db.get_value(
-								"Amazon SP API Settings",
-								self.amz_setting.name,
-								"mfn_postage_fee_account_head",
+								"Amazon SP API Settings", self.amz_setting.name, "mfn_postage_fee_account_head",
 							)
 							if (
 								not service_fee.get("account_head")
@@ -1495,9 +1449,7 @@ class AmazonRepository:
 								{
 									"amazon_order_id": so.amazon_order_id,
 									"account": service_fee.get("account_head"),
-									"debit_in_account_currency": abs(
-										service_fee.get("tax_amount")
-									),
+									"debit_in_account_currency": abs(service_fee.get("tax_amount")),
 								},
 							):
 								try:
@@ -1515,18 +1467,10 @@ class AmazonRepository:
 									jv_row.debit_in_account_currency = tax_amount
 									jv_row.user_remark = row.get("description")
 									jv_row.amazon_order_id = so.amazon_order_id
-									default_receivable_account = frappe.db.get_value(
-										"Company",
-										self.amz_setting.company,
-										"default_receivable_account",
-									)
+									default_receivable_account = frappe.db.get_value("Company", self.amz_setting.company, "default_receivable_account")
 									jv_row = jv_doc.append("accounts")
-									jv_row.credit = abs(
-										float(service_fee.get("tax_amount", 0))
-									)
-									jv_row.credit_in_account_currency = abs(
-										float(service_fee.get("tax_amount", 0))
-									)
+									jv_row.credit = abs(float(service_fee.get("tax_amount", 0)))
+									jv_row.credit_in_account_currency = abs(float(service_fee.get("tax_amount", 0)))
 									jv_row.user_remark = f"Amazon MFN Postage Fee for Order {so.amazon_order_id}"
 									jv_row.amazon_order_id = so.amazon_order_id
 									jv_row.party_type = "Customer"
@@ -1542,9 +1486,7 @@ class AmazonRepository:
 									)
 
 				if charges_and_fees.get("additional_discount"):
-					so.discount_amount = (
-						float(charges_and_fees.get("additional_discount")) * -1
-					)
+					so.discount_amount = float(charges_and_fees.get("additional_discount")) * -1
 
 			so.flags.ignore_mandatory = True
 			so.disable_rounded_total = 1
@@ -1557,9 +1499,7 @@ class AmazonRepository:
 					# Enhance HSN/SAC errors with item information
 					enhanced_error = self.enhance_hsn_error_with_items(error_msg, so)
 					frappe.log_error(
-						title="Error saving Sales Order for Order {0}".format(
-							so.amazon_order_id
-						),
+						title="Error saving Sales Order for Order {0}".format(so.amazon_order_id),
 						message=f"Error: {enhanced_error}",
 					)
 
@@ -1603,9 +1543,7 @@ class AmazonRepository:
 							),
 							message=f"Error: {enhanced_error}",
 						)
-			elif not frappe.db.exists(
-				"Amazon Failed Sync Record", {"amazon_order_id": order_id}
-			):
+			elif not frappe.db.exists("Amazon Failed Sync Record", {"amazon_order_id": order_id}):
 				remarks = "Failed to create Sales Order for {0}. Sales Order grand Total = {1}".format(
 					order_id, so.grand_total
 				)
@@ -1910,3 +1848,78 @@ def generate_random_string(length=4):
 	random_string = ''.join(random.choices(characters, k=length))
 
 	return random_string
+
+def get_sales_invoice_id_from_item_id(order_id, amazon_order_item_id):
+	'''
+		Method to get Sales Inovice ID using order_id and order_item_id
+	'''
+	result = frappe.db.sql("""
+		SELECT
+			si.name
+		FROM
+			`tabSales Invoice` si
+		INNER JOIN
+			`tabSales Invoice Item` sii
+			ON sii.parent = si.name
+		WHERE
+			si.amazon_order_id = %s
+			AND sii.amazon_order_item_id = %s
+			AND si.docstatus = 1
+		LIMIT 1
+	""", (order_id, amazon_order_item_id))
+
+	return result[0][0] if result else None
+
+def get_so_id_from_si(sales_invoice):
+	'''
+		Method to get Sales Order ID from Sales Invoice Reference
+	'''
+	result = frappe.db.sql("""
+		SELECT DISTINCT
+			sii.sales_order
+		FROM
+			`tabSales Invoice Item` sii
+		WHERE
+			sii.parent = %s
+			AND sii.sales_order IS NOT NULL
+		LIMIT 1
+	""", (sales_invoice))
+
+	return result[0][0] if result else None
+
+def group_returns_by_posting_datetime(payload):
+	grouped_returns = []
+	grouped_by_posting_date = {}
+
+	for refund in payload:
+		items = refund.get("items") or []
+		charges = refund.get("charges") or []
+		fees = refund.get("fees") or []
+		tds = refund.get("tds") or []
+
+		if items:
+			posting_date = refund.get("posting_date")
+
+			if posting_date not in grouped_by_posting_date:
+				group = {
+					"amazon_order_amount": refund.get("amazon_order_amount"),
+					"charges": [],
+					"fees": [],
+					"items": [],
+					"tds": [],
+					"order_date": refund.get("order_date"),
+					"posting_date": posting_date
+				}
+
+				grouped_by_posting_date[posting_date] = group
+				grouped_returns.append(group)
+
+			else:
+				group = grouped_by_posting_date[posting_date]
+
+		group["items"].extend(items)
+		group["charges"].extend(charges)
+		group["fees"].extend(fees)
+		group["tds"].extend(tds)
+
+	return grouped_returns
