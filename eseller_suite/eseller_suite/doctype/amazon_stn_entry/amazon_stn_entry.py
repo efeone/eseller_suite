@@ -3,7 +3,6 @@
 import frappe
 from frappe.utils import flt
 from frappe.model.document import Document
-from frappe.core.doctype.submission_queue.submission_queue import queue_submission
 
 import os
 import re
@@ -17,19 +16,19 @@ from eseller_suite.eseller_suite.utils import add_bundle_components_to_stock_ent
 
 
 class AmazonSTNEntry(Document):
-	def submit(self):
-		if len(self.stn_entries) > 50:
-			queue_submission(self, "_submit")
-		else:
-			return self._submit()
-
 	def validate(self):
 		if not self.stn_entries:
 			self.process_stn_file()
 		self.set_ready_to_process_doc()
 
 	def on_submit(self):
-		self.handle_stock_movement_entries()
+		frappe.enqueue(
+			method="eseller_suite.eseller_suite.doctype.amazon_stn_entry.amazon_stn_entry.process_stn_stock_movements",
+			queue="long",
+			timeout=6000,
+			docname=self.name,
+			enqueue_after_commit=True,  # ensures submit is committed before job starts
+		)
 
 	def before_cancel(self):
 		self.cancel_linked_documents()
@@ -138,8 +137,7 @@ class AmazonSTNEntry(Document):
 
 	def map_companies_and_warehouses(self, row):
 		"""Map companies and warehouses for the STN row."""
-		allowed_transaction_types = ['FC_TRANSFER', 'FC_REMOVAL', 'FC_REMOVAL-Cancel']
-		# ToDo :: Except FC_TRANSFER
+		allowed_transaction_types = ['FC_TRANSFER', 'FC_REMOVAL', 'FC_REMOVAL-Cancel', 'EInvoiceCancel']
 		if row.transaction_type not in allowed_transaction_types:
 			self.add_error_log(row, f"Transaction Type with {row.transaction_type} is not handled right now.")
 			row.ready_to_process = 0
@@ -160,7 +158,7 @@ class AmazonSTNEntry(Document):
 		else:
 			self.add_error_log(row, f"Source Company not found for GSTIN: {row.source_gstin}")
 
-		if row.transaction_type in ['FC_REMOVAL', 'FC_REMOVAL-Cancel']:
+		if row.transaction_type in ['FC_REMOVAL', 'FC_REMOVAL-Cancel', 'EInvoiceCancel']:
 			main_warehouse = frappe.db.get_single_value("eSeller Settings", "main_warehouse")
 			main_company = frappe.db.get_single_value("eSeller Settings", "main_company")
 			if not main_warehouse or not main_company:
@@ -529,6 +527,22 @@ class AmazonSTNEntry(Document):
 			frappe.db.set_value(row.doctype, row.name, "transactions_created", 1, update_modified=False)
 			row.transactions_created = 1
 
+	def handle_e_invoice_cancel(self, row):
+		'''
+			Method to handle e-invoice cancel
+			Creating Credit/Debit notes against Inter compnay Sales/Purchase Invoice
+		'''
+		if not row.invoice_number:
+			self.add_error_log(row, "Invoice number missing for EInvoiceCancel.")
+			return
+		log_doc = frappe.new_doc('STN ToDo Log')
+		log_doc.stn_entry = self.name
+		log_doc.stn_entry_item = row.name
+		log_doc.invoice_number = row.invoice_number
+		log_doc.invoice_value = row.invoice_value
+		log_doc.save(ignore_permissions=True)
+		self.add_error_log(row, f"EInvoiceCancel process for Invoice Number: {row.invoice_number} is queued.")
+
 	def create_sales_invoice(self, row):
 		"""
 			Create Sales Invoice for Source Company
@@ -808,35 +822,59 @@ class AmazonSTNEntry(Document):
 			row.transactions_created = 1
 			row.error_log = f"Duplicate row detected. References copied from {duplicate_row.name}."
 
-	def handle_stock_movement_entries(self):
-		'''
-			Handle stock movement entries for rows like
-			Creating Sales/Purchase Invoices for Inter-Company Transfers.
-			Creating Stock Entries for Same Company Transfers.
-			Cancelling documents for FC_REMOVAL-Cancel transactions.
-		'''
+	def handle_stock_movement_entries_batched(self, batch_size=100):
 		stock_entry_type = frappe.db.get_value("Stock Entry Type", {"purpose": "Material Transfer"}, "name")
 		if not stock_entry_type:
 			frappe.throw("Stock Entry Type for Material Transfer not found. Please configure it before submitting the STN Entry.")
 
-		for stn_row in self.stn_entries:
-			# Skip rows if not ready
-			if not stn_row.ready_to_process or stn_row.transactions_created:
-				continue
+		rows_to_process = [
+			r for r in self.stn_entries
+			if r.ready_to_process and not r.transactions_created
+		]
 
-			if stn_row.transaction_type == 'FC_REMOVAL-Cancel':
-				self.handle_fc_removal_cancel(stn_row)
-				continue
+		total = len(rows_to_process)
+		processed = 0
 
-			# Stock Entry for Same Company
-			if stn_row.source_company == stn_row.target_company:
-				self.create_stock_entries_for_material_transfer(stn_row, stock_entry_type)
-			else:
-				# For Inter-Company Transfers, create Sales and Purchase Invoices
-				self.create_sales_invoice(stn_row)
-				self.create_purchase_invoice(stn_row)
-				frappe.db.set_value(stn_row.doctype, stn_row.name, "transactions_created", 1, update_modified=False)
+		for i in range(0, total, batch_size):
+			batch = rows_to_process[i:i + batch_size]
+
+			for stn_row in batch:
+				try:
+					self._process_single_stn_row(stn_row, stock_entry_type)
+				except Exception:
+					frappe.log_error(
+						title=f"STN row failed: {stn_row.name}",
+						message=frappe.get_traceback()
+					)
+					frappe.db.rollback()  # roll back just this row's partial work
+					continue
+
+			frappe.db.commit()  # commit after each batch, not each row
+			processed += len(batch)
+
+			frappe.publish_realtime(
+				event="stn_processing_progress",
+				message={"processed": processed, "total": total, "docname": self.name},
+				user=frappe.session.user,
+			)
+
 		submit_transactions(self.name)
+
+	def _process_single_stn_row(self, stn_row, stock_entry_type):
+		if stn_row.transaction_type == 'FC_REMOVAL-Cancel':
+			self.handle_fc_removal_cancel(stn_row)
+			return
+
+		if stn_row.transaction_type == 'EInvoiceCancel':
+			self.handle_e_invoice_cancel(stn_row)
+			return
+
+		if stn_row.source_company == stn_row.target_company:
+			self.create_stock_entries_for_material_transfer(stn_row, stock_entry_type)
+		else:
+			self.create_sales_invoice(stn_row)
+			self.create_purchase_invoice(stn_row)
+			frappe.db.set_value(stn_row.doctype, stn_row.name, "transactions_created", 1, update_modified=False)
 
 	@frappe.whitelist()
 	def retry_fetching_data(self):
@@ -1007,3 +1045,14 @@ def export_stock_exceptions(stn_entry_name):
 	frappe.response["filename"] = "stock_exceptions_{0}.xlsx".format(stn_entry_name)
 	frappe.response["filecontent"] = xlsx_file.getvalue()
 	frappe.response["type"] = "binary"
+
+def process_stn_stock_movements(docname):
+    doc = frappe.get_doc("Amazon STN Entry", docname)
+    try:
+        doc.handle_stock_movement_entries_batched()
+    except Exception:
+        frappe.log_error(
+            title=f"Amazon STN Entry {docname} processing job failed",
+            message=frappe.get_traceback()
+        )
+        frappe.db.rollback()  # discard any uncommitted work in the failing batch

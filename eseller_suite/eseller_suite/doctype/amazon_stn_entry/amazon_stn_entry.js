@@ -3,6 +3,7 @@
 
 frappe.ui.form.on("Amazon STN Entry", {
 	refresh(frm) {
+		show_stn_processing_progress(frm);
 		if (!frm.is_new()) {
 			set_introduction_texts(frm);
 			set_error_messages_html(frm);
@@ -73,5 +74,25 @@ function handle_download_exception(frm) {
 	open_url_post(frappe.request.url, {
 		cmd: "eseller_suite.eseller_suite.doctype.amazon_stn_entry.amazon_stn_entry.export_stock_exceptions",  // adjust to your module path
 		stn_entry_name: frm.doc.name
+	});
+}
+
+function show_stn_processing_progress(frm){
+	// Avoid attaching multiple listeners on repeated refreshes
+	frappe.realtime.off("stn_processing_progress");
+	frappe.realtime.on("stn_processing_progress", (data) => {
+		if (data.docname !== frm.doc.name) return; // ignore other docs' events
+
+		frm.dashboard.show_progress(
+			"Processing STN Entries",
+			(data.processed / data.total) * 100,
+			`${data.processed} of ${data.total} processed${data.failed ? ` (${data.failed} failed)` : ""}`
+		);
+
+		if (data.processed >= data.total) {
+			frm.dashboard.hide_progress();
+			frappe.show_alert({ message: "STN processing completed", indicator: "green" });
+			frm.reload_doc();
+		}
 	});
 }
