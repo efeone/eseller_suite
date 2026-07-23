@@ -25,3 +25,8 @@ class STNToDoLog(Document):
 	
 	def before_save(self):
 		self.set_references()
+	
+	def on_update(self):
+		if self.credit_note and self.debit_note:
+			frappe.db.set_value('Amazon STN Entry Item', self.stn_entry_item, 'transactions_created', 1, update_modified=False)
+			frappe.db.set_value('Amazon STN Entry Item', self.stn_entry_item, 'error_log', '', update_modified=False)
