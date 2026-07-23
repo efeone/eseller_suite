@@ -3,7 +3,8 @@
 import frappe
 from frappe.utils import flt
 from frappe.model.document import Document
-from frappe.core.doctype.submission_queue.submission_queue import queue_submission
+from frappe.utils.xlsxutils import make_xlsx
+from frappe.utils.background_jobs import get_queue, execute_job
 
 import os
 import re
@@ -11,25 +12,25 @@ import csv
 from bs4 import BeautifulSoup
 from datetime import datetime
 from charset_normalizer import from_path
-from frappe.utils.xlsxutils import make_xlsx
 
 from eseller_suite.eseller_suite.utils import add_bundle_components_to_stock_entry, get_bundle_items
 
 
 class AmazonSTNEntry(Document):
-	def submit(self):
-		if len(self.stn_entries) > 50:
-			queue_submission(self, "_submit")
-		else:
-			return self._submit()
-
 	def validate(self):
 		if not self.stn_entries:
 			self.process_stn_file()
 		self.set_ready_to_process_doc()
 
 	def on_submit(self):
-		self.handle_stock_movement_entries()
+		# Kickoff job waits for the submit to commit, then builds the RQ chain
+		frappe.enqueue(
+			method="eseller_suite.eseller_suite.doctype.amazon_stn_entry.amazon_stn_entry.queue_stn_batch_chain",
+			queue="short",
+			is_async=True,
+			enqueue_after_commit=True,
+			docname=self.name,
+		)
 
 	def before_cancel(self):
 		self.cancel_linked_documents()
@@ -120,15 +121,13 @@ class AmazonSTNEntry(Document):
 				stn_row["invoice_time"] = dt.strftime("%H:%M:%S")
 			except:
 				try:
-					# 30/04/2025-04-30 10:44
-					dt = datetime.strptime(date_str.strip(), "%d/%m/%y %H:%M")
+					# 30/04/2025 10:44
+					dt = datetime.strptime(date_str.strip(), "%d/%m/%Y %H:%M")
 					stn_row["invoice_date"] = dt.strftime("%Y-%m-%d")
 					stn_row["invoice_time"] = dt.strftime("%H:%M:%S")
 				except ValueError as e:
-					frappe.log_error(
-						title="Invalid Invoice Date Format",
-						message=f"Failed on: '{date_str}' | Error: {e}"
-					)
+					stn_row['error_log'] = f"Invalid Invoice Date Format : Failed on: '{date_str}' | Error: {e}"
+					stn_row['ready_to_process'] = 0
 
 		child = self.append("stn_entries", stn_row)
 		self.map_companies_and_warehouses(child)
@@ -138,8 +137,7 @@ class AmazonSTNEntry(Document):
 
 	def map_companies_and_warehouses(self, row):
 		"""Map companies and warehouses for the STN row."""
-		allowed_transaction_types = ['FC_TRANSFER', 'FC_REMOVAL', 'FC_REMOVAL-Cancel']
-		# ToDo :: Except FC_TRANSFER
+		allowed_transaction_types = ['FC_TRANSFER', 'FC_REMOVAL', 'FC_REMOVAL-Cancel', 'EInvoiceCancel']
 		if row.transaction_type not in allowed_transaction_types:
 			self.add_error_log(row, f"Transaction Type with {row.transaction_type} is not handled right now.")
 			row.ready_to_process = 0
@@ -160,7 +158,7 @@ class AmazonSTNEntry(Document):
 		else:
 			self.add_error_log(row, f"Source Company not found for GSTIN: {row.source_gstin}")
 
-		if row.transaction_type in ['FC_REMOVAL', 'FC_REMOVAL-Cancel']:
+		if row.transaction_type in ['FC_REMOVAL', 'FC_REMOVAL-Cancel', 'EInvoiceCancel']:
 			main_warehouse = frappe.db.get_single_value("eSeller Settings", "main_warehouse")
 			main_company = frappe.db.get_single_value("eSeller Settings", "main_company")
 			if not main_warehouse or not main_company:
@@ -529,6 +527,22 @@ class AmazonSTNEntry(Document):
 			frappe.db.set_value(row.doctype, row.name, "transactions_created", 1, update_modified=False)
 			row.transactions_created = 1
 
+	def handle_e_invoice_cancel(self, row):
+		'''
+			Method to handle e-invoice cancel
+			Creating Credit/Debit notes against Inter compnay Sales/Purchase Invoice
+		'''
+		if not row.invoice_number:
+			self.add_error_log(row, "Invoice number missing for EInvoiceCancel.")
+			return
+		log_doc = frappe.new_doc('STN ToDo Log')
+		log_doc.stn_entry = self.name
+		log_doc.stn_entry_item = row.name
+		log_doc.invoice_number = row.invoice_number
+		log_doc.invoice_value = row.invoice_value
+		log_doc.save(ignore_permissions=True)
+		self.add_error_log(row, f"EInvoiceCancel process for Invoice Number: {row.invoice_number} is queued.")
+
 	def create_sales_invoice(self, row):
 		"""
 			Create Sales Invoice for Source Company
@@ -808,35 +822,87 @@ class AmazonSTNEntry(Document):
 			row.transactions_created = 1
 			row.error_log = f"Duplicate row detected. References copied from {duplicate_row.name}."
 
-	def handle_stock_movement_entries(self):
-		'''
-			Handle stock movement entries for rows like
-			Creating Sales/Purchase Invoices for Inter-Company Transfers.
-			Creating Stock Entries for Same Company Transfers.
-			Cancelling documents for FC_REMOVAL-Cancel transactions.
-		'''
-		stock_entry_type = frappe.db.get_value("Stock Entry Type", {"purpose": "Material Transfer"}, "name")
-		if not stock_entry_type:
-			frappe.throw("Stock Entry Type for Material Transfer not found. Please configure it before submitting the STN Entry.")
+	def build_batch_job_chain(self, batch_size=100):
+		rows_to_process = [
+			r.name for r in self.stn_entries
+			if r.ready_to_process and not r.transactions_created
+		]
+		total = len(rows_to_process)
+		if not total:
+			emit_stn_progress(self.name, {"stage": "complete", "message": "Nothing to process"})
+			return
 
-		for stn_row in self.stn_entries:
-			# Skip rows if not ready
-			if not stn_row.ready_to_process or stn_row.transactions_created:
-				continue
+		batches = [rows_to_process[i:i + batch_size] for i in range(0, total, batch_size)]
+		total_batches = len(batches)
 
-			if stn_row.transaction_type == 'FC_REMOVAL-Cancel':
-				self.handle_fc_removal_cancel(stn_row)
-				continue
+		site = frappe.local.site
+		user = frappe.session.user
+		queue = get_queue("long")
 
-			# Stock Entry for Same Company
-			if stn_row.source_company == stn_row.target_company:
-				self.create_stock_entries_for_material_transfer(stn_row, stock_entry_type)
-			else:
-				# For Inter-Company Transfers, create Sales and Purchase Invoices
-				self.create_sales_invoice(stn_row)
-				self.create_purchase_invoice(stn_row)
-				frappe.db.set_value(stn_row.doctype, stn_row.name, "transactions_created", 1, update_modified=False)
-		submit_transactions(self.name)
+		prev_job = None
+		for idx, row_names in enumerate(batches):
+			prev_job = queue.enqueue_call(
+				execute_job,
+				timeout=6000,
+				kwargs=dict(
+					site=site,
+					method="eseller_suite.eseller_suite.doctype.amazon_stn_entry.amazon_stn_entry.process_stn_batch",
+					event=None,
+					job_name=f"stn_batch_{self.name}_{idx}",
+					kwargs=dict(
+						docname=self.name,
+						row_names=row_names,
+						batch_index=idx,
+						total_batches=total_batches,
+						user=user,
+					),
+					is_async=True,
+					retry=0,
+				),
+				depends_on=prev_job,  # None for the first batch → runs immediately
+			)
+
+		# Final job only runs once every batch job has finished successfully
+		queue.enqueue_call(
+			execute_job,
+			timeout=1200,
+			kwargs=dict(
+				site=site,
+				method="eseller_suite.eseller_suite.doctype.amazon_stn_entry.amazon_stn_entry.process_stn_submit",
+				event=None,
+				job_name=f"stn_submit_{self.name}",
+				kwargs=dict(docname=self.name),
+				is_async=True,
+				retry=0,
+			),
+			depends_on=prev_job,
+		)
+
+		emit_stn_progress(
+			self.name,
+			{
+				"stage": "queued",
+				"total_batches": total_batches,
+				"message": f"Queued {total_batches} batch job(s)",
+			},
+			user=user,
+		)
+
+	def _process_single_stn_row(self, stn_row, stock_entry_type):
+		if stn_row.transaction_type == 'FC_REMOVAL-Cancel':
+			self.handle_fc_removal_cancel(stn_row)
+			return
+
+		if stn_row.transaction_type == 'EInvoiceCancel':
+			self.handle_e_invoice_cancel(stn_row)
+			return
+
+		if stn_row.source_company == stn_row.target_company:
+			self.create_stock_entries_for_material_transfer(stn_row, stock_entry_type)
+		else:
+			self.create_sales_invoice(stn_row)
+			self.create_purchase_invoice(stn_row)
+			frappe.db.set_value(stn_row.doctype, stn_row.name, "transactions_created", 1, update_modified=False)
 
 	@frappe.whitelist()
 	def retry_fetching_data(self):
@@ -901,68 +967,159 @@ def get_items_from_bundle(bundle):
 		})
 	return populated_items
 
-def submit_transactions(stn_entry_name):
-		'''
-			Method to submit created Sales, Purchase and Stock entries...
-		'''
-		if not frappe.db.exists('Amazon STN Entry', stn_entry_name):
-			return
+def submit_transactions(stn_entry_name, user=None):
+	'''
+		Method to submit created Sales, Purchase and Stock entries...
+	'''
+	if not frappe.db.exists('Amazon STN Entry', stn_entry_name):
+		return
 
-		self = frappe.get_doc('Amazon STN Entry', stn_entry_name)
-		for stn_row in self.stn_entries:
-			if stn_row.transactions_created:
-				# Submiting Stock Entry with exception handling
-				if stn_row.stock_entry:
-					frappe.db.savepoint("before_se_submit")
-					try:
-						se_doc = frappe.get_doc('Stock Entry', stn_row.stock_entry)
-						if se_doc.docstatus == 0:
-							se_doc.save(ignore_permissions=True)
-							se_doc.submit()
-					except Exception as e:
-						frappe.db.rollback(save_point="before_se_submit")
-						exception_msg = f"Failed to submit Stock Entry: {stn_row.stock_entry} - {str(e)}"
-						if stn_row.error_log:
-							exception_msg = f"{stn_row.error_log}\n{exception_msg}"
-						frappe.db.set_value(stn_row.doctype, stn_row.name, "error_log", exception_msg, update_modified=False)
+	self = frappe.get_doc('Amazon STN Entry', stn_entry_name)
 
-				# Submiting Sales Invoice with exception handling
-				if stn_row.sales_invoice:
+	rows_to_submit = [r for r in self.stn_entries if r.transactions_created]
+	total = len(rows_to_submit)
+
+	if not total:
+		emit_stn_progress(
+			stn_entry_name,
+			{"stage": "submitting_entries", "current": 0, "total": 0, "message": "Nothing to submit"},
+			user=user,
+		)
+		return
+
+	for idx, stn_row in enumerate(rows_to_submit, start=1):
+
+		# Submiting Stock Entry with exception handling
+		if stn_row.stock_entry:
+			emit_stn_progress(
+				stn_entry_name,
+				{
+					"stage": "submitting_entries",
+					"current": idx - 1,
+					"total": total,
+					"message": f"Submitting Stock Entry: {stn_row.stock_entry}",
+				},
+				user=user,
+			)
+			frappe.db.savepoint("before_se_submit")
+			try:
+				se_doc = frappe.get_doc('Stock Entry', stn_row.stock_entry)
+				if se_doc.docstatus == 0:
+					se_doc.save(ignore_permissions=True)
+					se_doc.submit()
+			except Exception as e:
+				frappe.db.rollback(save_point="before_se_submit")
+				exception_msg = f"Failed to submit Stock Entry: {stn_row.stock_entry} - {str(e)}"
+				if stn_row.error_log:
+					exception_msg = f"{stn_row.error_log}\n{exception_msg}"
+				frappe.db.set_value(stn_row.doctype, stn_row.name, "error_log", exception_msg, update_modified=False)
+				emit_stn_progress(
+					stn_entry_name,
+					{
+						"stage": "submitting_entries",
+						"current": idx,
+						"total": total,
+						"message": f"Failed: Stock Entry: {stn_row.stock_entry}",
+					},
+					user=user,
+				)
+
+		# Submiting Sales Invoice with exception handling
+		if stn_row.sales_invoice:
+			if stn_row.purchase_invoice:
+				frappe.db.set_value('Sales Invoice', stn_row.sales_invoice, "inter_company_invoice_reference", stn_row.purchase_invoice, update_modified=False)
+			emit_stn_progress(
+				stn_entry_name,
+				{
+					"stage": "submitting_entries",
+					"current": idx - 1,
+					"total": total,
+					"message": f"Submitting Sales Invoice: {stn_row.sales_invoice}",
+				},
+				user=user,
+			)
+			frappe.db.savepoint("before_si_submit")
+			try:
+				si_doc = frappe.get_doc('Sales Invoice', stn_row.sales_invoice)
+				if si_doc.docstatus == 0:
+					si_doc.discount_amount = 0 #To trigger discount calculation
 					if stn_row.purchase_invoice:
-						frappe.db.set_value('Sales Invoice', stn_row.sales_invoice, "inter_company_invoice_reference", stn_row.purchase_invoice, update_modified=False)
-					frappe.db.savepoint("before_si_submit")
-					try:
-						si_doc = frappe.get_doc('Sales Invoice', stn_row.sales_invoice)
-						if si_doc.docstatus == 0:
-							si_doc.discount_amount = 0 #To trigger discount calculation
-							if stn_row.purchase_invoice:
-								si_doc.inter_company_invoice_reference = stn_row.purchase_invoice
-							si_doc.save(ignore_permissions=True)
-							si_doc.submit()
-					except Exception as e:
-						frappe.db.rollback(save_point="before_si_submit")
-						exception_msg = f"Failed to submit Sales Invoice: {stn_row.sales_invoice} - {str(e)}"
-						if stn_row.error_log:
-							exception_msg = f"{stn_row.error_log}\n{exception_msg}"
-						frappe.db.set_value(stn_row.doctype, stn_row.name, "error_log", exception_msg, update_modified=False)
+						si_doc.inter_company_invoice_reference = stn_row.purchase_invoice
+					si_doc.save(ignore_permissions=True)
+					si_doc.submit()
+			except Exception as e:
+				frappe.db.rollback(save_point="before_si_submit")
+				exception_msg = f"Failed to submit Sales Invoice: {stn_row.sales_invoice} - {str(e)}"
+				if stn_row.error_log:
+					exception_msg = f"{stn_row.error_log}\n{exception_msg}"
+				frappe.db.set_value(stn_row.doctype, stn_row.name, "error_log", exception_msg, update_modified=False)
+				emit_stn_progress(
+					stn_entry_name,
+					{
+						"stage": "submitting_entries",
+						"current": idx,
+						"total": total,
+						"message": f"Failed: Sales Invoice: {stn_row.sales_invoice}",
+					},
+					user=user,
+				)
 
-				# Submiting Purchase Invoice with exception handling
-				if stn_row.purchase_invoice:
-					if stn_row.sales_invoice:
-						frappe.db.set_value('Purchase Invoice', stn_row.purchase_invoice, "inter_company_invoice_reference", stn_row.sales_invoice, update_modified=False)
-					frappe.db.savepoint("before_pi_submit")
-					try:
-						pi_doc = frappe.get_doc('Purchase Invoice', stn_row.purchase_invoice)
-						if pi_doc.docstatus == 0:
-							pi_doc.discount_amount = 0 #To trigger discount calculation
-							pi_doc.save(ignore_permissions=True)
-							pi_doc.submit()
-					except Exception as e:
-						frappe.db.rollback(save_point="before_pi_submit")
-						exception_msg = f"Failed to submit Purchase Invoice: {stn_row.purchase_invoice} - {str(e)}"
-						if stn_row.error_log:
-							exception_msg = f"{stn_row.error_log}\n{exception_msg}"
-						frappe.db.set_value(stn_row.doctype, stn_row.name, "error_log", exception_msg, update_modified=False)
+		# Submiting Purchase Invoice with exception handling
+		if stn_row.purchase_invoice:
+			if stn_row.sales_invoice:
+				frappe.db.set_value('Purchase Invoice', stn_row.purchase_invoice, "inter_company_invoice_reference", stn_row.sales_invoice, update_modified=False)
+			emit_stn_progress(
+				stn_entry_name,
+				{
+					"stage": "submitting_entries",
+					"current": idx - 1,
+					"total": total,
+					"message": f"Submitting Purchase Invoice: {stn_row.purchase_invoice}",
+				},
+				user=user,
+			)
+			frappe.db.savepoint("before_pi_submit")
+			try:
+				pi_doc = frappe.get_doc('Purchase Invoice', stn_row.purchase_invoice)
+				if pi_doc.docstatus == 0:
+					pi_doc.discount_amount = 0 #To trigger discount calculation
+					pi_doc.save(ignore_permissions=True)
+					pi_doc.submit()
+			except Exception as e:
+				frappe.db.rollback(save_point="before_pi_submit")
+				exception_msg = f"Failed to submit Purchase Invoice: {stn_row.purchase_invoice} - {str(e)}"
+				if stn_row.error_log:
+					exception_msg = f"{stn_row.error_log}\n{exception_msg}"
+				frappe.db.set_value(stn_row.doctype, stn_row.name, "error_log", exception_msg, update_modified=False)
+				emit_stn_progress(
+					stn_entry_name,
+					{
+						"stage": "submitting_entries",
+						"current": idx,
+						"total": total,
+						"message": f"Failed: Purchase Invoice: {stn_row.purchase_invoice}",
+					},
+					user=user,
+				)
+
+		# Row done — report progress at row granularity regardless of which sub-docs it had
+		emit_stn_progress(
+			stn_entry_name,
+			{
+				"stage": "submitting_entries",
+				"current": idx,
+				"total": total,
+				"message": f"Processed row {idx}/{total} (Row {stn_row.idx})",
+			},
+			user=user,
+		)
+
+	emit_stn_progress(
+		stn_entry_name,
+		{"stage": "submitting_entries", "current": total, "total": total, "message": "All transactions submitted"},
+		user=user,
+	)
+	frappe.db.set_value('Amazon STN Entry', stn_entry_name, 'processing_completed', 1, update_modified=False)
 
 @frappe.whitelist()
 def export_stock_exceptions(stn_entry_name):
@@ -1007,3 +1164,67 @@ def export_stock_exceptions(stn_entry_name):
 	frappe.response["filename"] = "stock_exceptions_{0}.xlsx".format(stn_entry_name)
 	frappe.response["filecontent"] = xlsx_file.getvalue()
 	frappe.response["type"] = "binary"
+
+def queue_stn_batch_chain(docname, batch_size=100):
+	doc = frappe.get_doc("Amazon STN Entry", docname)
+	doc.build_batch_job_chain(batch_size)
+
+def process_stn_submit(docname, user=None):
+	submit_transactions(docname)
+	emit_stn_progress(docname, {"stage": "complete", "message": "All transactions submitted"}, user=user)
+
+
+def process_stn_batch(docname, row_names, batch_index, total_batches, user=None):
+	doc = frappe.get_doc("Amazon STN Entry", docname)
+	stock_entry_type = frappe.db.get_value("Stock Entry Type", {"purpose": "Material Transfer"}, "name")
+	if not stock_entry_type:
+		frappe.throw(_("Stock Entry Type for Material Transfer not found. Please configure it before submitting the STN Entry."))
+
+	rows = [r for r in doc.stn_entries if r.name in row_names]
+	total_rows = len(rows)
+
+	def emit(current, message, stage="creating_entries"):
+		emit_stn_progress(
+			docname,
+			{
+				"stage": stage,
+				"batch_index": batch_index,
+				"total_batches": total_batches,
+				"current_row": current,
+				"total_rows_in_batch": total_rows,
+				"message": message,
+			},
+			user=user,
+		)
+
+	for idx, stn_row in enumerate(rows, start=1):
+		emit(idx, f"Processing {stn_row.transaction_type} for Row {stn_row.idx}")
+		try:
+			doc._process_single_stn_row(stn_row, stock_entry_type)
+		except Exception:
+			frappe.log_error(
+				title=f"STN row failed: Row {stn_row.idx}",
+				message=frappe.get_traceback(),
+			)
+			frappe.db.rollback()
+			emit(idx, f"Failed: Row {stn_row.idx}", stage="row_failed")
+			continue
+
+	frappe.db.commit()
+	emit(total_rows, f"Batch {batch_index + 1}/{total_batches} done", stage="batch_complete")
+
+
+def emit_stn_progress(docname, payload, user=None):
+	payload = {
+		**payload,
+		"docname": docname,
+		"timestamp": frappe.utils.now_datetime().isoformat(),
+	}
+	frappe.cache().set_value(f"stn_progress:{docname}", payload, expires_in_sec=3600)
+	frappe.publish_realtime(event="stn_processing_progress", message=payload, user=user)
+
+
+@frappe.whitelist()
+def get_stn_progress(docname):
+	frappe.has_permission("Amazon STN Entry", "read", throw=True)
+	return frappe.cache().get_value(f"stn_progress:{docname}")

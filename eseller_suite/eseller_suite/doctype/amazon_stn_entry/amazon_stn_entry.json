@@ -10,6 +10,7 @@
   "section_break_5lye",
   "stn_file",
   "ready_to_process",
+  "processing_completed",
   "column_break_szum",
   "posting_date",
   "amended_from",
@@ -77,6 +78,7 @@
    "label": "Error Messages HTML"
   },
   {
+   "allow_on_submit": 1,
    "default": "0",
    "fieldname": "ready_to_process",
    "fieldtype": "Check",
@@ -92,13 +94,25 @@
    "fieldtype": "Button",
    "hidden": 1,
    "label": "Summarise and Download"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "0",
+   "fieldname": "processing_completed",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Processing Completed",
+   "no_copy": 1,
+   "print_hide": 1,
+   "read_only": 1,
+   "report_hide": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-06-17 13:53:37.710485",
+ "modified": "2026-07-23 14:05:00.890318",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "Amazon STN Entry",

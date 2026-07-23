@@ -85,17 +85,35 @@ def set_discount_based_on_amazon_value(doc):
 
 def unset_stn_exception(doc):
 	'''
-		Method to unset STN exception after invoice submission
+	Method to unset STN exception after Purchase Invoice submission
 	'''
-	if frappe.db.exists('Amazon STN Entry Item', {'purchase_invoice': doc.name}):
-		stn_entry_item, si_ref  = frappe.db.get_value('Amazon STN Entry Item', {'purchase_invoice': doc.name}, ['name', 'sales_invoice'])
-		frappe.db.set_value('Amazon STN Entry Item', stn_entry_item, 'error_log', '')
-		frappe.db.commit()
+	stn_items = frappe.get_all(
+		'Amazon STN Entry Item', filters={'purchase_invoice': doc.name}, fields=['name', 'sales_invoice']
+	)
+
+	if not stn_items:
+		return
+
+	sales_invoices = set()
+
+	# Clear error logs and collect unique Sales Invoices
+	for item in stn_items:
+		frappe.db.set_value('Amazon STN Entry Item', item.name, 'error_log', '', update_modified=False)
+		if item.sales_invoice:
+			sales_invoices.add(item.sales_invoice)
+	frappe.db.commit()
+
+	# Submit each Sales Invoice only once
+	for si_ref in sales_invoices:
 		if frappe.db.get_value('Sales Invoice', si_ref, 'docstatus') == 0:
 			try:
-				si_doc = frappe.get_doc('Sales Invoice', si_ref)
-				si_doc.submit()
+				frappe.get_doc('Sales Invoice', si_ref).submit()
 			except Exception as e:
 				frappe.db.rollback()
 				exception_msg = f"Failed to submit Sales Invoice: {si_ref} - {str(e)}"
-				frappe.db.set_value('Amazon STN Entry Item', stn_entry_item, 'error_log', exception_msg, update_modified=False)
+
+				# Update all related STN items with the error
+				for item in stn_items:
+					if item.sales_invoice == si_ref:
+						frappe.db.set_value('Amazon STN Entry Item', item.name, 'error_log', exception_msg, update_modified=False)
+				frappe.db.commit()

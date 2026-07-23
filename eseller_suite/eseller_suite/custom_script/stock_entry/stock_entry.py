@@ -185,8 +185,10 @@ def process_bundle_items(bundle_items, from_warehouse=None, to_warehouse=None):
 
 def unset_stn_exception(doc):
 	'''
-		Method to unset STN exception after stock entry submission
+		Method to unset STN exception after Stock Entry submission
 	'''
-	if frappe.db.exists('Amazon STN Entry Item', {'stock_entry': doc.name}):
-		stn_entry_item  = frappe.db.get_value('Amazon STN Entry Item', {'stock_entry': doc.name}, 'name')
-		frappe.db.set_value('Amazon STN Entry Item', stn_entry_item, 'error_log', '')
+	frappe.db.sql("""
+		UPDATE `tabAmazon STN Entry Item`
+		SET error_log = ''
+		WHERE stock_entry = %s
+	""", (doc.name,))

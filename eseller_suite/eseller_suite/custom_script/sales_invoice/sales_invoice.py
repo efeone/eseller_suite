@@ -94,12 +94,20 @@ def set_discount_based_on_amazon_value(doc):
 
 def unset_stn_exception(doc):
 	'''
-		Method to unset STN exception after invoice submission
+		Method to unset STN exception after Sales Invoice submission
 	'''
-	if frappe.db.exists('Amazon STN Entry Item', {'sales_invoice': doc.name}):
-		stn_entry_item, pi_ref  = frappe.db.get_value('Amazon STN Entry Item', {'sales_invoice': doc.name}, ['name', 'purchase_invoice'])
-		if frappe.db.get_value('Purchase Invoice', pi_ref, 'docstatus') == 1:
-			frappe.db.set_value('Amazon STN Entry Item', stn_entry_item, 'error_log', '')
+	stn_items = frappe.get_all('Amazon STN Entry Item', filters={'sales_invoice': doc.name}, fields=['name', 'purchase_invoice'])
+
+	if not stn_items:
+		return
+
+	pi_ref = stn_items[0].purchase_invoice
+
+	if pi_ref and frappe.db.get_value('Purchase Invoice', pi_ref, 'docstatus') == 1:
+		for item in stn_items:
+			frappe.db.set_value(
+				'Amazon STN Entry Item', item.name, 'error_log', '', update_modified=False
+			)
 
 def delete_failed_invoice_records(self):
 	'''
