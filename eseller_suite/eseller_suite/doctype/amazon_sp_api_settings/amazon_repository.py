@@ -743,15 +743,15 @@ class AmazonRepository:
 				)
 				make_address.city = shipping_address.get("City", "Not Provided")
 				amazon_state = shipping_address.get("StateOrRegion")
+				pincode = shipping_address.get("PostalCode")
+				make_address.pincode = pincode
 				if map_state_data:
-					if frappe.db.exists(
-						"Amazon State Mapping", {"amazon_state": amazon_state}
-					):
-						make_address.state = frappe.db.get_value(
-							"Amazon State Mapping",
-							{"amazon_state": amazon_state},
-							"state",
+					if frappe.db.exists("Amazon State Mapping", {"amazon_state": amazon_state}):
+						make_address.state = frappe.db.get_value("Amazon State Mapping",
+							{"amazon_state": amazon_state}, "state",
 						)
+					elif get_state_by_pincode(pincode):
+						make_address.state = get_state_by_pincode(pincode)
 					else:
 						failed_sync_record = frappe.new_doc("Amazon Failed Sync Record")
 						failed_sync_record.amazon_order_id = order_id
@@ -762,7 +762,6 @@ class AmazonRepository:
 						return
 				else:
 					make_address.state = amazon_state
-				make_address.pincode = shipping_address.get("PostalCode")
 
 				filters = [
 					["Dynamic Link", "link_doctype", "=", "Customer"],
@@ -1923,3 +1922,38 @@ def group_returns_by_posting_datetime(payload):
 		group["tds"].extend(tds)
 
 	return grouped_returns
+
+import urllib.request
+#Only these values have change with respect to api data
+state_mapping = {
+	'Andaman & Nicobar': 'Andaman and Nicobar Islands',
+	'Dadra & Nagar Haveli': 'Dadra and Nagar Haveli and Daman and Diu',
+	'Daman & Diu': 'Dadra and Nagar Haveli and Daman and Diu',
+	'Jammu & Kashmir': 'Jammu and Kashmir',
+	'Lakshadweep': 'Lakshadweep Islands',
+	'Pondicherry': 'Puducherry'
+}
+def get_state_by_pincode(pincode):
+	"""
+	Get state from Indian PIN code.
+	"""
+	try:
+		url = f"https://api.postalpincode.in/pincode/{pincode}"
+
+		with urllib.request.urlopen(url, timeout=10) as response:
+			data = json.loads(response.read().decode())
+
+		if (
+			data
+			and data[0].get("Status") == "Success"
+			and data[0].get("PostOffice")
+		):
+			state = data[0]["PostOffice"][0]["State"]
+			if state_mapping.get(state):
+				state = state_mapping.get(state)
+			return state
+
+	except Exception:
+		frappe.log_error(message=frappe.get_traceback(), title="Get State by Pincode")
+
+	return None
