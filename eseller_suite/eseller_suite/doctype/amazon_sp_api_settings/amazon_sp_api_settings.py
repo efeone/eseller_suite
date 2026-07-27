@@ -583,8 +583,6 @@ def enq_si_submit():
 			frappe.db.commit()
 		except Exception:
 			frappe.db.rollback()
-			frappe.log_error(frappe.get_traceback(), f"SI Submit Failed: {sales_invoice_name}")
-
 
 def enq_si_submit_doc(sales_invoice):
 	sales_invoice_doc = frappe.get_doc("Sales Invoice", sales_invoice)
