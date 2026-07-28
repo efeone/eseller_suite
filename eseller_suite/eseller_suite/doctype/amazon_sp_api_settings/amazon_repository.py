@@ -743,15 +743,15 @@ class AmazonRepository:
 				)
 				make_address.city = shipping_address.get("City", "Not Provided")
 				amazon_state = shipping_address.get("StateOrRegion")
+				pincode = shipping_address.get("PostalCode")
+				make_address.pincode = pincode
 				if map_state_data:
-					if frappe.db.exists(
-						"Amazon State Mapping", {"amazon_state": amazon_state}
-					):
-						make_address.state = frappe.db.get_value(
-							"Amazon State Mapping",
-							{"amazon_state": amazon_state},
-							"state",
+					if frappe.db.exists("Amazon State Mapping", {"amazon_state": amazon_state}):
+						make_address.state = frappe.db.get_value("Amazon State Mapping",
+							{"amazon_state": amazon_state}, "state",
 						)
+					elif get_state_by_pincode(pincode):
+						make_address.state = get_state_by_pincode(pincode)
 					else:
 						failed_sync_record = frappe.new_doc("Amazon Failed Sync Record")
 						failed_sync_record.amazon_order_id = order_id
@@ -762,7 +762,6 @@ class AmazonRepository:
 						return
 				else:
 					make_address.state = amazon_state
-				make_address.pincode = shipping_address.get("PostalCode")
 
 				filters = [
 					["Dynamic Link", "link_doctype", "=", "Customer"],
@@ -1118,6 +1117,7 @@ class AmazonRepository:
 					["customer", "company", "debit_to", "set_warehouse", "fulfillment_channel", "status"],
 					as_dict=True
 				)
+
 				return_si.customer = si_data.customer
 				return_si.company  = si_data.company
 				return_si.debit_to = si_data.debit_to
@@ -1150,7 +1150,7 @@ class AmazonRepository:
 				si_items_data = frappe.db.get_all(
 					"Sales Invoice Item",
 					filters={"parent": si},
-					fields=["name", "item_code", "qty", "rate", "gst_hsn_code"]
+					fields=["name", "item_code", "qty", "rate", "gst_hsn_code", "warehouse"]
 				)
 				si_item_map = {row.item_code: row for row in si_items_data}
 
@@ -1183,7 +1183,8 @@ class AmazonRepository:
 							"rate": rate,
 							"sales_order": so_id,
 							"sales_invoice_item": si_item.name,
-							"amazon_order_item_id": amazon_order_item_id
+							"amazon_order_item_id": amazon_order_item_id,
+							"warehouse": si_item.warehouse
 						}
 						if original_item_hsn:
 							return_item["gst_hsn_code"] = original_item_hsn
@@ -1923,3 +1924,38 @@ def group_returns_by_posting_datetime(payload):
 		group["tds"].extend(tds)
 
 	return grouped_returns
+
+import urllib.request
+#Only these values have change with respect to api data
+state_mapping = {
+	'Andaman & Nicobar': 'Andaman and Nicobar Islands',
+	'Dadra & Nagar Haveli': 'Dadra and Nagar Haveli and Daman and Diu',
+	'Daman & Diu': 'Dadra and Nagar Haveli and Daman and Diu',
+	'Jammu & Kashmir': 'Jammu and Kashmir',
+	'Lakshadweep': 'Lakshadweep Islands',
+	'Pondicherry': 'Puducherry'
+}
+def get_state_by_pincode(pincode):
+	"""
+	Get state from Indian PIN code.
+	"""
+	try:
+		url = f"https://api.postalpincode.in/pincode/{pincode}"
+
+		with urllib.request.urlopen(url, timeout=10) as response:
+			data = json.loads(response.read().decode())
+
+		if (
+			data
+			and data[0].get("Status") == "Success"
+			and data[0].get("PostOffice")
+		):
+			state = data[0]["PostOffice"][0]["State"]
+			if state_mapping.get(state):
+				state = state_mapping.get(state)
+			return state
+
+	except Exception:
+		frappe.log_error(message=frappe.get_traceback(), title="Get State by Pincode")
+
+	return None
