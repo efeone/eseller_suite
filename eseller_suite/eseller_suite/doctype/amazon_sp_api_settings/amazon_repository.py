@@ -1117,6 +1117,7 @@ class AmazonRepository:
 					["customer", "company", "debit_to", "set_warehouse", "fulfillment_channel", "status"],
 					as_dict=True
 				)
+
 				return_si.customer = si_data.customer
 				return_si.company  = si_data.company
 				return_si.debit_to = si_data.debit_to
@@ -1149,7 +1150,7 @@ class AmazonRepository:
 				si_items_data = frappe.db.get_all(
 					"Sales Invoice Item",
 					filters={"parent": si},
-					fields=["name", "item_code", "qty", "rate", "gst_hsn_code"]
+					fields=["name", "item_code", "qty", "rate", "gst_hsn_code", "warehouse"]
 				)
 				si_item_map = {row.item_code: row for row in si_items_data}
 
@@ -1182,7 +1183,8 @@ class AmazonRepository:
 							"rate": rate,
 							"sales_order": so_id,
 							"sales_invoice_item": si_item.name,
-							"amazon_order_item_id": amazon_order_item_id
+							"amazon_order_item_id": amazon_order_item_id,
+							"warehouse": si_item.warehouse
 						}
 						if original_item_hsn:
 							return_item["gst_hsn_code"] = original_item_hsn
