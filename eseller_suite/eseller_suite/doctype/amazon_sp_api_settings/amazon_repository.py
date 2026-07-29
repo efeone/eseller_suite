@@ -1897,6 +1897,7 @@ def group_returns_by_posting_datetime(payload):
 		charges = refund.get("charges") or []
 		fees = refund.get("fees") or []
 		tds = refund.get("tds") or []
+		group = {}
 
 		if items:
 			posting_date = refund.get("posting_date")
@@ -1918,10 +1919,10 @@ def group_returns_by_posting_datetime(payload):
 			else:
 				group = grouped_by_posting_date[posting_date]
 
-		group["items"].extend(items)
-		group["charges"].extend(charges)
-		group["fees"].extend(fees)
-		group["tds"].extend(tds)
+			group["items"].extend(items)
+			group["charges"].extend(charges)
+			group["fees"].extend(fees)
+			group["tds"].extend(tds)
 
 	return grouped_returns
 
