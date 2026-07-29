@@ -211,11 +211,29 @@ class AmazonPaymentEntry(Document):
 							row.ready_to_process = 1
 							row.amazon_expense_account = other_income_account
 							has_changes = True
-				if row.transaction_type == 'Other' and row.product_details == 'Reimbursement or lost or damaged package':
+				if row.transaction_type == 'Other' and row.product_details == 'Easy Ship Shipping Fee':
+					easy_ship_shipping_fee_account = get_account_based_on_company(row.company, 'shipping_charges_account')
+					if easy_ship_shipping_fee_account:
+						row.ready_to_process = 1
+						row.amazon_expense_account = easy_ship_shipping_fee_account
+						has_changes = True
+				elif row.transaction_type == 'Other' and row.product_details == 'Reimbursement or lost or damaged package':
 					reimbursement_income_account = get_account_based_on_company(row.company, 'reimbursement_income_account')
 					if reimbursement_income_account:
 						row.ready_to_process = 1
 						row.amazon_expense_account = reimbursement_income_account
+						has_changes = True
+				elif row.transaction_type == 'Other' and row.product_details == 'TDS Reimbursements':
+					tds_reimbursement_account = get_account_based_on_company(row.company, 'tds_reimbursement_account')
+					if tds_reimbursement_account:
+						row.ready_to_process = 1
+						row.amazon_expense_account = tds_reimbursement_account
+						has_changes = True
+				elif row.transaction_type == 'Other' and row.product_details == 'FBA Flex Weight Handling Fees':
+					fba_flex_weight_account = get_account_based_on_company(row.company, 'fba_flex_weight_account')
+					if fba_flex_weight_account:
+						row.ready_to_process = 1
+						row.amazon_expense_account = fba_flex_weight_account
 						has_changes = True
 				if row.transaction_type.strip() == 'Cancellation' and row.product_details == 'Order Cancellation Charge' and row.total and row.order_id:
 					if float(row.total) < 0:
@@ -476,21 +494,20 @@ def get_replaced_jv(amazon_order_id):
 	return jv_reference
 
 def get_account_based_on_company(company, account_type):
-	account = None
-	account_types = [
-		'amazon_reserve_fund_account',
-		'amazon_reserve_income_account',
-		'amazon_reserve_expense_account',
-		'inventory_reimbursement_account',
-		'inventory_reimbursement_income_account',
-		'other_expenses_account',
-		'other_income_account',
-		'order_cancellation_account',
-		'mop_account',
-		'reimbursement_income_account',
-		'shipping_charges_account',
-		'fulfilment_fee_refund_account'
-	]
-	if account_type in account_types:
-		account = frappe.db.get_value('Amazon Payment Account', { 'company': company, 'parent': 'eSeller Settings', }, account_type)
-	return account
+	"""
+		Returns the account configured for the given company and account_type
+		from Amazon Payment Account, if the field exists.
+	"""
+	meta = frappe.get_meta("Amazon Payment Account")
+
+	if not meta.has_field(account_type):
+		return None
+
+	return frappe.db.get_value(
+		"Amazon Payment Account",
+		{
+			"company": company,
+			"parent": "eSeller Settings",
+		},
+		account_type,
+	)

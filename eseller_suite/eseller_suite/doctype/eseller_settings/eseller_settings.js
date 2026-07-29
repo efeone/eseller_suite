@@ -99,7 +99,9 @@ function default_account_filters(frm) {
 		'amazon_reserve_income_account',
 		'amazon_reserve_expense_account',
 		'shipping_charges_account',
-		'fulfilment_fee_refund_account'
+		'fulfilment_fee_refund_account',
+		'tds_reimbursement_account',
+		'fba_flex_weight_account'
 	];
 
 	account_fields.forEach(fieldname => {
