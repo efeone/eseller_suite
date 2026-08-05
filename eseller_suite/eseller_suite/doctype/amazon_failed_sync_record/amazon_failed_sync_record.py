@@ -80,7 +80,10 @@ class AmazonFailedSyncRecord(Document):
 			so_doc.custom_validate()
 			so_doc.save(ignore_permissions=True)
 			if so_doc.amazon_order_status == 'Shipped':
-				so_doc.submit()
+				try:
+					so_doc.submit()
+				except Exception as e:
+					frappe.log_error(message=f"Error submitting Sales Order {so_doc.name} : {str(e)}", title="Replaced Sales Order Submisison Faield")
 			frappe.db.set_value(self.doctype, self.name, 'replaced_so', so_doc.name)
 			frappe.msgprint('Sales Order Created: <a href="{0}">{1}</a>'.format(get_url_to_form(so_doc.doctype, so_doc.name), so_doc.name), alert=True, indicator='green')
 

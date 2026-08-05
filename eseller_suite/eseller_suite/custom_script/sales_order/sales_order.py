@@ -62,6 +62,8 @@ class SalesOrderOverride(SalesOrder):
 		self.set_has_multi_company_exception_flag()
 
 	def on_submit(self):
+		if self.has_multi_company_exception:
+			frappe.throw("Multi Company Exception is not handled")
 		super(SalesOrderOverride, self).on_submit()
 
 		# ignore Invoice Creation for old orders
@@ -159,8 +161,11 @@ class SalesOrderOverride(SalesOrder):
 				"name": self.temporary_stock_tranfer_id,
 				"docstatus": 1
 			})
+		fc_data_exists = True
+		if self.fulfillment_channel == "AFN":
+			fc_data_exists = True if self.fc_location else False
 
-		if not (order_status_valid and has_taxes and transfer_flag):
+		if not (order_status_valid and has_taxes and transfer_flag and fc_data_exists):
 			msg = f"Sales Order {self.name} cannot be submitted."
 			if not order_status_valid:
 				msg += " Ensure that the order status is valid."
@@ -168,6 +173,8 @@ class SalesOrderOverride(SalesOrder):
 				msg += " Ensure that taxes are set for the order."
 			if order_status_valid and not transfer_flag:
 				msg += " Ensure that the temporary stock transfer has been completed."
+			if not fc_data_exists:
+				msg += " Ensure FC Details has been fetched."
 			frappe.throw(
 				_(msg),
 				title=_("Invalid Sales Order Submission"),
