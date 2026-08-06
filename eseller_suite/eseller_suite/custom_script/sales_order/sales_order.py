@@ -162,7 +162,7 @@ class SalesOrderOverride(SalesOrder):
 				"docstatus": 1
 			})
 		fc_data_exists = True
-		if self.fulfillment_channel == "AFN":
+		if self.fulfillment_channel == "AFN" and not self.ignore_fc_changes:
 			fc_data_exists = True if self.fc_location else False
 
 		if not (order_status_valid and has_taxes and transfer_flag and fc_data_exists):
