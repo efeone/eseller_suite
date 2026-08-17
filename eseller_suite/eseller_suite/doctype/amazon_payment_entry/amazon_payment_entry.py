@@ -9,7 +9,7 @@ import frappe
 from frappe import _
 from charset_normalizer import from_path
 from frappe.model.document import Document
-from frappe.utils import get_url_to_form
+from frappe.utils import get_url_to_form, flt
 from frappe.core.doctype.submission_queue.submission_queue import queue_submission
 
 from eseller_suite.eseller_suite.utils import is_old_data
