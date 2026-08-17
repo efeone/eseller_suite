@@ -111,7 +111,8 @@ def get_sales_order_custom_fields():
 				"insert_after": "title",
 				"in_standard_filter": 1,
 				"read_only": 1,
-				"no_copy": 1
+				"no_copy": 1,
+				"search_index": 1
 			},
 			{
 				"fieldname": "amazon_transaction_type",
@@ -322,7 +323,8 @@ def get_sales_invoice_custom_fields():
 				"insert_after": "customer",
 				"in_standard_filter": 1,
 				"read_only": 1,
-				"no_copy": 1
+				"no_copy": 1,
+				"search_index": 1
 			},
 			{
 				"fieldname": "amazon_transaction_type",
@@ -667,6 +669,7 @@ def get_journal_entry_custom_fields():
 				"insert_after": "payment_order",
 				"read_only": 1,
 				"no_copy": 1,
+				"search_index": 1,
 				"description": "Reference for Replaced Order"
 			}
 		],
@@ -677,7 +680,8 @@ def get_journal_entry_custom_fields():
 				"label": "Amazon Order ID",
 				"insert_after": "reference_detail_no",
 				"read_only": 1,
-				"no_copy": 1
+				"no_copy": 1,
+				"search_index": 1
 			}
 		]
 	}

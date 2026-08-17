@@ -203,8 +203,10 @@ async function get_missing_sales_orders(frm) {
 
 		await frm.reload_doc();
 
+		// Repeat without checking conditions
+		has_more_orders = true;
 		// Repeat only if consider_so_only is enabled
-		has_more_orders = frm.doc.consider_so_only ? true : false;
+		// has_more_orders = frm.doc.consider_so_only ? true : false;
 
 	} while (has_more_orders);
 
