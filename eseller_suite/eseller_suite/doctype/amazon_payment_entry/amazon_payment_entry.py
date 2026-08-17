@@ -14,6 +14,21 @@ from frappe.core.doctype.submission_queue.submission_queue import queue_submissi
 
 from eseller_suite.eseller_suite.utils import is_old_data
 
+# Fixed set of every account_field your _apply_expense_account_rules / _process_cancellation
+# code can ask for. Prefetched once regardless of which rows actually need them --
+# it's one cheap query either way.
+ALL_ACCOUNT_FIELDS = [
+	'inventory_reimbursement_account',
+	'inventory_reimbursement_income_account',
+	'other_expenses_account',
+	'other_income_account',
+	'shipping_charges_account',
+	'reimbursement_income_account',
+	'tds_reimbursement_account',
+	'fba_flex_weight_account',
+	'order_cancellation_account',
+]
+
 
 class AmazonPaymentEntry(Document):
 	def before_save(self):
@@ -106,151 +121,244 @@ class AmazonPaymentEntry(Document):
 			Method to get fetch Invoice and Customer details against each Amazon Order IDs
 		'''
 		has_changes = False
-		total_pending_count = frappe.db.get_all('Amazon Payment Entry Item', { 'parent':self.name, 'ready_to_process':0, 'ignore_transaction':0 })
-		i = 0
+		pending_rows = frappe.db.get_all('Amazon Payment Entry Item', {
+			'parent': self.name, 'ready_to_process': 0, 'ignore_transaction': 0
+		})
+
+		order_ids = list({
+			row.order_id for row in self.payment_details
+			if row.order_id and row.order_id != '---'
+		})
+		service_type_names = list({
+			row.product_details for row in self.payment_details
+			if row.transaction_type == 'Service Fees' and row.product_details
+		})
+
+		# --- one round trip per data source, instead of one per row ---
+		so_map = self._prefetch_sales_orders(order_ids)
+		invoice_map = prefetch_invoice_details(order_ids, is_return=0)
+		return_invoice_map = prefetch_invoice_details(order_ids, is_return=1)
+		replaced_jv_map = prefetch_replaced_jvs(order_ids)
+		service_type_map = prefetch_service_types(service_type_names)
+		account_map, valid_account_fields = prefetch_payment_accounts(ALL_ACCOUNT_FIELDS)
+
+		processed = 0
 		for row in self.payment_details:
-			if row.order_id and not row.has_sales_order and frappe.db.exists('Sales Order', {'amazon_order_id':row.order_id, 'docstatus':['!=', 2]}):
-				row.has_sales_order = 1
-				transaction_date = frappe.db.get_value('Sales Order', {'amazon_order_id':row.order_id, 'docstatus':['!=', 2]}, 'transaction_date')
-				if is_old_data(transaction_date):
-					row.ignore_transaction = 1
+			if self._sync_sales_order_flag(row, so_map):
 				has_changes = True
-			if not row.ready_to_process:
-				i += 1
-				frappe.publish_realtime("fetch_invoice_details", dict(progress=i, total=len(total_pending_count)))
-				row.company = self.company
-				if row.order_id and row.transaction_type in ['Order Payment', 'Amazon Easy Ship Charges', 'Fulfillment Fee Refund', 'Refund', 'Other']:
-					invoice_details = get_invoice_details(row.order_id, is_return=0, amount=row.total)
-					return_invoice_details = None
-					is_return = False
-					if row.transaction_type in ['Fulfillment Fee Refund', 'Refund'] or row.product_details == 'Weight Handling Fees Reversal':
-						is_return = True
-						return_invoice_details = get_invoice_details(row.order_id, is_return=1, amount=row.total)
-					if invoice_details.get('sales_invoice'):
-						row.sales_invoice = invoice_details.get('sales_invoice')
-						row.company = invoice_details.get('company')
-					if invoice_details.get('customer'):
-						row.customer = invoice_details.get('customer')
-						if not is_return:
-							row.ready_to_process = 1
-						has_changes = True
-					if return_invoice_details:
-						if return_invoice_details.get('sales_invoice'):
-							row.return_sales_invoice = return_invoice_details.get('sales_invoice')
-							row.ready_to_process = 1
-							has_changes = True
-						if return_invoice_details.get('customer') and not row.customer:
-							row.customer = return_invoice_details.get('customer')
-							has_changes = True
-						if return_invoice_details.get('company'):
-							row.company = return_invoice_details.get('company')
-							has_changes = True
-						if return_invoice_details.get('debit_to'):
-							row.default_receivable_account = return_invoice_details.get('debit_to')
-							has_changes = True
-					elif not return_invoice_details and self.remaining_refunds_have_no_returns:
-						row.ready_to_process = 1
-						has_changes = True
-					if row.transaction_type == 'Refund' and float(row.total) == 0:
-						row.ready_to_process = 1
-						has_changes = True
-				elif row.transaction_type in ["Unavailable balance", "Previous statement's unavailable balance"]:
-					row.ready_to_process = 1
-					has_changes = True
-				elif row.transaction_type == 'Service Fees':
-					if row.product_details:
-						service_type_details = get_amazon_service_type_details(row.product_details)
-						if service_type_details.get('service_type'):
-							row.amazon_service_type = service_type_details.get('service_type')
-						if service_type_details.get('expense_account'):
-							row.amazon_expense_account = service_type_details.get('expense_account')
-							row.ready_to_process = 1
-							has_changes = True
-				if row.transaction_type == 'Order Payment' and row.total and row.order_id:
-					if float(row.total) < 0:
-						row.ready_to_process = 0
-						replaced_jv = get_replaced_jv(row.order_id)
-						if replaced_jv:
-							row.journal_entry = replaced_jv
-							if row.sales_invoice and row.customer:
-								row.ready_to_process = 1
-								has_changes = True
-						elif row.sales_invoice and row.customer:
-							row.ready_to_process = 1
-							has_changes = True
-				if row.transaction_type in ['Other', 'Inventory Reimbursement'] and row.product_details in ['FBA Inventory Reimbursement', 'FBA Reversed Reimbursement'] and row.order_id == '---':
-					if float(row.total) < 0:
-						inventory_reimbursement_account = get_account_based_on_company(row.company, 'inventory_reimbursement_account')
-						if inventory_reimbursement_account:
-							row.ready_to_process = 1
-							row.amazon_expense_account = inventory_reimbursement_account
-							has_changes = True
-					elif float(row.total) > 0:
-						inventory_reimbursement_income_account = get_account_based_on_company(row.company, 'inventory_reimbursement_income_account')
-						if inventory_reimbursement_income_account:
-							row.ready_to_process = 1
-							row.amazon_expense_account = inventory_reimbursement_income_account
-							has_changes = True
-				if row.transaction_type == 'Inventory Reimbursement' and row.product_details == 'FBA Inventory Reimbursement' and row.order_id:
-					if float(row.total) > 0:
-						inventory_reimbursement_income_account = get_account_based_on_company(row.company, 'inventory_reimbursement_income_account')
-						if inventory_reimbursement_income_account:
-							row.ready_to_process = 1
-							row.amazon_expense_account = inventory_reimbursement_income_account
-							has_changes = True
-				if row.transaction_type == 'Other' and row.product_details == 'Others' and row.order_id == '---':
-					if float(row.total) < 0:
-						other_expenses_account = get_account_based_on_company(row.company, 'other_expenses_account')
-						if other_expenses_account:
-							row.ready_to_process = 1
-							row.amazon_expense_account = other_expenses_account
-							has_changes = True
-					elif float(row.total) > 0:
-						other_income_account = get_account_based_on_company(row.company, 'other_income_account')
-						if other_income_account:
-							row.ready_to_process = 1
-							row.amazon_expense_account = other_income_account
-							has_changes = True
-				if row.transaction_type == 'Other' and row.product_details == 'Easy Ship Shipping Fee':
-					easy_ship_shipping_fee_account = get_account_based_on_company(row.company, 'shipping_charges_account')
-					if easy_ship_shipping_fee_account:
-						row.ready_to_process = 1
-						row.amazon_expense_account = easy_ship_shipping_fee_account
-						has_changes = True
-				elif row.transaction_type == 'Other' and row.product_details == 'Reimbursement or lost or damaged package':
-					reimbursement_income_account = get_account_based_on_company(row.company, 'reimbursement_income_account')
-					if reimbursement_income_account:
-						row.ready_to_process = 1
-						row.amazon_expense_account = reimbursement_income_account
-						has_changes = True
-				elif row.transaction_type == 'Other' and row.product_details == 'TDS Reimbursements':
-					tds_reimbursement_account = get_account_based_on_company(row.company, 'tds_reimbursement_account')
-					if tds_reimbursement_account:
-						row.ready_to_process = 1
-						row.amazon_expense_account = tds_reimbursement_account
-						has_changes = True
-				elif row.transaction_type == 'Other' and row.product_details == 'FBA Flex Weight Handling Fees':
-					fba_flex_weight_account = get_account_based_on_company(row.company, 'fba_flex_weight_account')
-					if fba_flex_weight_account:
-						row.ready_to_process = 1
-						row.amazon_expense_account = fba_flex_weight_account
-						has_changes = True
-				if row.transaction_type.strip() == 'Cancellation' and row.product_details == 'Order Cancellation Charge' and row.total and row.order_id:
-					if float(row.total) < 0:
-						order_cancellation_account = get_account_based_on_company(row.company, 'order_cancellation_account')
-						if order_cancellation_account:
-							row.ready_to_process = 1
-							row.amazon_expense_account = order_cancellation_account
-							has_changes = True
-				if row.amazon_expense_account:
-					row.company = frappe.db.get_value('Account', row.amazon_expense_account, 'company')
-				if row.transaction_type in ['Amazon Easy Ship Charges', 'Fulfillment Fee Refund']:
-					if not row.ready_to_process and not row.ignore_transaction:
-						row.ready_to_process = 1
-						has_changes = 1
+
+			if row.ready_to_process:
+				continue
+
+			processed += 1
+			frappe.publish_realtime("fetch_invoice_details", dict(progress=processed, total=len(pending_rows)))
+			row.company = self.company
+
+			if self._process_primary_transaction(row, invoice_map, return_invoice_map, service_type_map):
+				has_changes = True
+			if self._process_order_payment_reversal(row, replaced_jv_map):
+				has_changes = True
+			if self._apply_expense_account_rules(row, account_map, valid_account_fields):
+				has_changes = True
+			if self._process_cancellation(row, account_map, valid_account_fields):
+				has_changes = True
+
+			if row.amazon_expense_account:
+				row.company = frappe.db.get_value('Account', row.amazon_expense_account, 'company')
+
+			if self._fallback_ready_to_process(row):
+				has_changes = True
+
 		if has_changes:
 			self.save()
+
 		return 1
+
+	def _prefetch_sales_orders(self, order_ids):
+		if not order_ids:
+			return {}
+		rows = frappe.db.get_all(
+			'Sales Order',
+			filters={'amazon_order_id': ['in', order_ids], 'docstatus': ['!=', 2]},
+			fields=['amazon_order_id', 'transaction_date']
+		)
+		return {r.amazon_order_id: r.transaction_date for r in rows}
+
+	def _sync_sales_order_flag(self, row, so_map):
+		'''Mark row as having a Sales Order and flag old transactions to be ignored'''
+		if row.order_id and not row.has_sales_order and row.order_id in so_map:
+			row.has_sales_order = 1
+			if is_old_data(so_map[row.order_id]):
+				row.ignore_transaction = 1
+			return True
+		return False
+
+	def _process_primary_transaction(self, row, invoice_map, return_invoice_map, service_type_map):
+		'''Mutually exclusive: invoice-linked transactions, unavailable balance, or service fees'''
+		if row.order_id and row.transaction_type in [
+			'Order Payment', 'Amazon Easy Ship Charges', 'Fulfillment Fee Refund', 'Refund', 'Other'
+		]:
+			return self._process_invoice_details(row, invoice_map, return_invoice_map)
+		elif row.transaction_type in ["Unavailable balance", "Previous statement's unavailable balance"]:
+			row.ready_to_process = 1
+			return True
+		elif row.transaction_type == 'Service Fees':
+			return self._process_service_fees(row, service_type_map)
+		return False
+
+	def _process_invoice_details(self, row, invoice_map, return_invoice_map):
+		'''Resolve Sales Invoice / Customer / return details for order-linked transactions -- pure in-memory now'''
+		has_changes = False
+		is_return = (
+			row.transaction_type in ['Fulfillment Fee Refund', 'Refund']
+			or row.product_details == 'Weight Handling Fees Reversal'
+		)
+
+		invoice_details = resolve_invoice_from_candidates(invoice_map.get(row.order_id, []), row.total)
+		return_invoice_details = (
+			resolve_invoice_from_candidates(return_invoice_map.get(row.order_id, []), row.total)
+			if is_return else None
+		)
+
+		if invoice_details.get('sales_invoice'):
+			row.sales_invoice = invoice_details.get('sales_invoice')
+			row.company = invoice_details.get('company')
+		if invoice_details.get('customer'):
+			row.customer = invoice_details.get('customer')
+			if not is_return:
+				row.ready_to_process = 1
+			has_changes = True
+
+		if return_invoice_details:
+			if return_invoice_details.get('sales_invoice'):
+				row.return_sales_invoice = return_invoice_details.get('sales_invoice')
+				row.ready_to_process = 1
+				has_changes = True
+			if return_invoice_details.get('customer') and not row.customer:
+				row.customer = return_invoice_details.get('customer')
+				has_changes = True
+			if return_invoice_details.get('company'):
+				row.company = return_invoice_details.get('company')
+				has_changes = True
+			if return_invoice_details.get('debit_to'):
+				row.default_receivable_account = return_invoice_details.get('debit_to')
+				has_changes = True
+		elif self.remaining_refunds_have_no_returns:
+			row.ready_to_process = 1
+			has_changes = True
+
+		if row.transaction_type == 'Refund' and float(row.total) == 0:
+			row.ready_to_process = 1
+			has_changes = True
+
+		return has_changes
+
+	def _process_service_fees(self, row, service_type_map):
+		if not row.product_details:
+			return False
+		expense_account = service_type_map.get(row.product_details)
+		if expense_account is None and row.product_details not in service_type_map:
+			return False  # Amazon Service Type doesn't exist at all
+		has_changes = False
+		if row.product_details in service_type_map:
+			row.amazon_service_type = row.product_details
+		if expense_account:
+			row.amazon_expense_account = expense_account
+			row.ready_to_process = 1
+			has_changes = True
+		return has_changes
+
+	def _process_order_payment_reversal(self, row, replaced_jv_map):
+		'''Negative Order Payment rows need a replaced JV or an existing invoice/customer before processing'''
+		if not (row.transaction_type == 'Order Payment' and row.total and row.order_id):
+			return False
+		if float(row.total) >= 0:
+			return False
+
+		row.ready_to_process = 0
+		replaced_jv = replaced_jv_map.get(row.order_id)
+		if replaced_jv:
+			row.journal_entry = replaced_jv
+			if row.sales_invoice and row.customer:
+				row.ready_to_process = 1
+				return True
+		elif row.sales_invoice and row.customer:
+			row.ready_to_process = 1
+			return True
+		return False
+
+	def _set_expense_account(self, row, account_field, account_map, valid_account_fields):
+		'''Shared pattern: dict lookup instead of a query, marks row ready if found'''
+		if account_field not in valid_account_fields:
+			return False
+		acct_row = account_map.get(row.company)
+		if not acct_row:
+			return False
+		account = acct_row.get(account_field)
+		if not account:
+			return False
+		row.ready_to_process = 1
+		row.amazon_expense_account = account
+		return True
+
+	def _apply_expense_account_rules(self, row, account_map, valid_account_fields):
+		has_changes = False
+		total = float(row.total) if row.total else 0
+
+		if row.transaction_type in ['Other', 'Inventory Reimbursement'] \
+			and row.product_details in ['FBA Inventory Reimbursement', 'FBA Reversed Reimbursement'] \
+			and row.order_id == '---':
+			account_field = (
+				'inventory_reimbursement_account' if total < 0
+				else 'inventory_reimbursement_income_account' if total > 0
+				else None
+			)
+			if account_field and self._set_expense_account(row, account_field, account_map, valid_account_fields):
+				has_changes = True
+
+		if row.transaction_type == 'Inventory Reimbursement' \
+			and row.product_details == 'FBA Inventory Reimbursement' and row.order_id and total > 0:
+			if self._set_expense_account(row, 'inventory_reimbursement_income_account', account_map, valid_account_fields):
+				has_changes = True
+
+		if row.transaction_type == 'Other' and row.product_details == 'Others' and row.order_id == '---':
+			account_field = (
+				'other_expenses_account' if total < 0
+				else 'other_income_account' if total > 0
+				else None
+			)
+			if account_field and self._set_expense_account(row, account_field, account_map, valid_account_fields):
+				has_changes = True
+
+		product_to_account = {
+			'Easy Ship Shipping Fee': 'shipping_charges_account',
+			'Reimbursement or lost or damaged package': 'reimbursement_income_account',
+			'TDS Reimbursements': 'tds_reimbursement_account',
+			'FBA Flex Weight Handling Fees': 'fba_flex_weight_account',
+		}
+		if row.transaction_type == 'Other' and row.product_details in product_to_account:
+			if self._set_expense_account(row, product_to_account[row.product_details], account_map, valid_account_fields):
+				has_changes = True
+
+		return has_changes
+
+	def _process_cancellation(self, row, account_map, valid_account_fields):
+		if not (
+			row.transaction_type.strip() == 'Cancellation'
+			and row.product_details == 'Order Cancellation Charge'
+			and row.total and row.order_id
+		):
+			return False
+		if float(row.total) >= 0:
+			return False
+		return self._set_expense_account(row, 'order_cancellation_account', account_map, valid_account_fields)
+
+	def _fallback_ready_to_process(self, row):
+		if row.transaction_type in ['Amazon Easy Ship Charges', 'Fulfillment Fee Refund'] \
+			and not row.ready_to_process and not row.ignore_transaction:
+			row.ready_to_process = 1
+			return True
+		return False
 
 	@frappe.whitelist()
 	def create_journal_entry(self):
@@ -475,23 +583,6 @@ def get_invoice_details(amazon_order_id, is_return=0, amount=0):
 		invoice_details['company'] = company
 		invoice_details['debit_to'] = debit_to
 	return invoice_details
-	
-def get_amazon_service_type_details(service_type):
-	'''
-		This method will return the Amazon Service Type and expense account
-	'''
-	service_type_details = {}
-	if frappe.db.exists('Amazon Service Type', service_type):
-		expense_account = frappe.db.get_value('Amazon Service Type', service_type, 'expense_account')
-		service_type_details['service_type'] = service_type
-		service_type_details['expense_account'] = expense_account
-	return service_type_details
-
-def get_replaced_jv(amazon_order_id):
-	jv_reference = False
-	if frappe.db.exists('Journal Entry', { 'docstatus':1, 'amazon_order_id':amazon_order_id }):
-		jv_reference = frappe.db.get_value('Journal Entry', { 'docstatus':1, 'amazon_order_id':amazon_order_id })
-	return jv_reference
 
 def get_account_based_on_company(company, account_type):
 	"""
@@ -511,3 +602,104 @@ def get_account_based_on_company(company, account_type):
 		},
 		account_type,
 	)
+
+def prefetch_invoice_details(order_ids, is_return=0):
+	'''
+	Bulk version of get_invoice_details. Fetches ALL matching Sales Invoices in one query,
+	grouped by amazon_order_id. Ambiguous cases (multiple SI per order) are resolved
+	later, in memory, using each row's own amount -- no extra query needed since
+	grand_total is already fetched here.
+
+	Returns: {order_id: [si_row, si_row, ...]}
+	'''
+	if not order_ids:
+		return {}
+	si_list = frappe.db.get_all(
+		'Sales Invoice',
+		filters={'amazon_order_id': ['in', order_ids], 'is_return': is_return, 'docstatus': 1},
+		fields=['name', 'amazon_order_id', 'customer', 'company', 'debit_to', 'grand_total']
+	)
+	grouped = {}
+	for si in si_list:
+		grouped.setdefault(si.amazon_order_id, []).append(si)
+	return grouped
+
+
+def resolve_invoice_from_candidates(candidates, amount):
+	'''
+	In-memory equivalent of the old "requery with grand_total filter" branch.
+	candidates: list of si rows for one order_id (from prefetch_invoice_details)
+	'''
+	if not candidates:
+		return {}
+
+	si = None
+	if len(candidates) == 1:
+		si = candidates[0]
+	else:
+		matches = [r for r in candidates if flt(r.grand_total) == flt(amount)]
+		if len(matches) == 1:
+			si = matches[0]
+
+	if not si:
+		return {}
+
+	return {
+		'sales_invoice': si.name,
+		'customer': si.customer,
+		'company': si.company,
+		'debit_to': si.debit_to,
+	}
+
+
+def prefetch_service_types(service_type_names):
+	'''Bulk version of get_amazon_service_type_details. Returns {name: expense_account}'''
+	if not service_type_names:
+		return {}
+	rows = frappe.db.get_all(
+		'Amazon Service Type',
+		filters={'name': ['in', list(service_type_names)]},
+		fields=['name', 'expense_account']
+	)
+	return {r.name: r.expense_account for r in rows}
+
+
+def prefetch_replaced_jvs(order_ids):
+	'''
+	Bulk version of get_replaced_jv. Returns {order_id: journal_entry_name}.
+	NOTE: original get_value had no order_by, so its "first match" was whatever
+	Frappe's default ordering returned (typically modified desc). This preserves
+	that by explicitly ordering modified desc and keeping the first hit per group.
+	If your intent was actually "any match", this is equivalent or safer.
+	'''
+	if not order_ids:
+		return {}
+	rows = frappe.db.get_all(
+		'Journal Entry',
+		filters={'docstatus': 1, 'amazon_order_id': ['in', order_ids]},
+		fields=['name', 'amazon_order_id'],
+		order_by='modified desc'
+	)
+	result = {}
+	for r in rows:
+		result.setdefault(r.amazon_order_id, r.name)  # first hit per order_id wins (latest, due to ordering)
+	return result
+
+
+def prefetch_payment_accounts(account_types):
+	'''
+	Bulk version of get_account_based_on_company. Single query for ALL companies
+	instead of one query per (company, account_type) pair.
+	Returns: (map, valid_fields) where map = {company: {field: value, ...}}
+	'''
+	meta = frappe.get_meta("Amazon Payment Account")
+	valid_fields = [f for f in account_types if meta.has_field(f)]
+	if not valid_fields:
+		return {}, valid_fields
+
+	rows = frappe.db.get_all(
+		'Amazon Payment Account',
+		filters={'parent': 'eSeller Settings'},
+		fields=['company'] + valid_fields
+	)
+	return {r.company: r for r in rows}, valid_fields

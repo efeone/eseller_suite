@@ -42,7 +42,8 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Order ID",
-   "read_only": 1
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "columns": 1,
@@ -172,7 +173,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-07-04 17:13:30.259401",
+ "modified": "2026-08-17 12:36:10.759603",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "Amazon Payment Entry Item",
