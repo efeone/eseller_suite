@@ -10,7 +10,12 @@ from frappe.model.document import Document
 from frappe.core.doctype.submission_queue.submission_queue import queue_submission
 
 
+# Both AFN export formats are supported. Keys are unique across the two
+#  schemes, so a single merged map resolves either file without collisions:
+#   - Tab-delimited export uses lowercase, hyphenated headers (amazon-order-id)
+#   - Comma-delimited export uses title-case headers (Amazon Order Id)
 KEY_MAPPING = {
+	# Tab-delimited export
 	'amazon-order-id': 'amazon_order_id',
 	'shipment-id': 'shipment_id',
 	'shipment-item-id': 'shipment_item_id',
@@ -21,6 +26,17 @@ KEY_MAPPING = {
 	'quantity-shipped': 'qty',
 	'item-price': 'item_price',
 	'item-tax': 'item_tax',
+	# Comma-delimited export
+	'Amazon Order Id': 'amazon_order_id',
+	'Shipment ID': 'shipment_id',
+	'Shipment Item Id': 'shipment_item_id',
+	'Amazon Order Item Id': 'amazon_order_item_id',
+	'Tracking Number': 'tracking_number',
+	'FC': 'fc_code',
+	'Merchant SKU': 'merchant_sku',
+	'Shipped Quantity': 'qty',
+	'Item Price': 'item_price',
+	'Item Tax': 'item_tax',
 }
 
 class AFNOrderShipmentEntry(Document):
@@ -55,8 +71,18 @@ class AFNOrderShipmentEntry(Document):
 			detected = from_path(file_path).best()
 			encoding = detected.encoding or 'utf-8'
 
+			# 'utf-8-sig' strips a leading BOM so the first column header
+			#  (e.g. 'Amazon Order Id') isn't returned as '﻿Amazon Order Id'.
+			if encoding.lower().replace('-', '').replace('_', '') == 'utf8':
+				encoding = 'utf-8-sig'
+
 			with open(file_path, 'r', encoding=encoding, newline='') as fh:
-				rows = list(csv.DictReader(fh, delimiter='\t'))
+				# AFN exports come as either tab- or comma-delimited; pick the
+				#  delimiter from the header so both formats parse correctly.
+				header = fh.readline()
+				delimiter = '\t' if header.count('\t') > header.count(',') else ','
+				fh.seek(0)
+				rows = list(csv.DictReader(fh, delimiter=delimiter))
 
 		except Exception as e:
 			frappe.throw(f'Error reading AFN Shipment CSV file: {e}')
