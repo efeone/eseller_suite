@@ -173,7 +173,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "Troubleshooting",
-   "link_count": 5,
+   "link_count": 7,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -210,6 +210,17 @@
   },
   {
    "hidden": 0,
+   "is_query_report": 0,
+   "label": "Missing AFN Shipment Logs",
+   "link_count": 0,
+   "link_to": "Missing AFN Shipment Logs",
+   "link_type": "Report",
+   "onboard": 0,
+   "report_ref_doctype": "Sales Order",
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
    "is_query_report": 1,
    "label": "Duplicate Sales Order Check",
    "link_count": 0,
@@ -227,9 +238,19 @@
    "link_type": "Report",
    "onboard": 0,
    "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Submission Pending Sales Orders",
+   "link_count": 0,
+   "link_to": "Submission Pending Sales Orders",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
   }
  ],
- "modified": "2026-07-13 16:47:52.751778",
+ "modified": "2026-08-31 15:53:09.300532",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "eSeller Suite",
