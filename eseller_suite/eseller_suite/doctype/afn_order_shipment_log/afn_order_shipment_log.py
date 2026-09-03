@@ -165,6 +165,26 @@ def update_sales_order_item(sales_order, old_item_code, new_item_code):
 		frappe.throw(_('Item {0} not found in Sales Order {1}').format(old_item_code, sales_order))
 
 	matched_row.item_code = new_item_code
+	reset_fc_processed_flag(so.amazon_order_id, new_item_code)
 	so.flags.ignore_permissions = True  # Ignore permissions to allow updates
 	so.submit()
 	return {'success': True}
+
+def reset_fc_processed_flag(amazon_order_id, item_code):
+	'''
+		Method to mark the shipment logs of an item as not processed
+
+		Logs are flagged as processed even when their item_code matched no row on the
+		Sales Order. Clearing the flag lets the Sales Order pick up the FC details of
+		the item on submit, which is mandatory for an AFN order.
+	'''
+	if not amazon_order_id:
+		return
+
+	filters = {
+		'amazon_order_id': amazon_order_id,
+		'item_code': item_code,
+		'has_exceptions': 0
+	}
+	if frappe.db.exists('AFN Order Shipment Log', filters):
+		frappe.db.set_value('AFN Order Shipment Log', filters, 'fc_processed', 0)
