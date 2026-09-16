@@ -7,3 +7,4 @@
 eseller_suite.patches.delete_unlinked_temporary_stock_tranfers #19/05/2024
 eseller_suite.patches.set_is_bundle_item_for_existing_items #16/02/2026
 eseller_suite.patches.update_standard_settings #06/03/2026
+eseller_suite.patches.index_amazon_invoice_id #16/09/2026

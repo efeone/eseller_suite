@@ -10,6 +10,7 @@ frappe.ui.form.on("Amazon STN Entry", {
 		if (!frm.is_new()) {
 			set_introduction_texts(frm);
 			hanlde_retry_btn(frm);
+			handle_retry_cancel_btn(frm);
 			if(frm.doc.docstatus===0 || frm.doc.processing_completed===1){
 				set_error_messages_html(frm);
 			}
@@ -24,6 +25,9 @@ frappe.ui.form.on("Amazon STN Entry", {
 	},
 	on_submit(frm) {
 		show_progress_banner(frm, __("Queuing batches..."), 0);
+	},
+	after_cancel(frm) {
+		show_progress_banner(frm, __("Queuing cancellation of linked documents..."), 0);
 	},
 	summarise_and_download(frm) {
 		handle_download_exception(frm);
@@ -66,6 +70,20 @@ function set_error_messages_html(frm) {
 	});
 }
 
+function handle_retry_cancel_btn(frm) {
+	if (frm.doc.docstatus !== 2 || frm.doc.cancellation_completed) return;
+
+	frm.add_custom_button(__('Re-try Cancelling Linked Documents'), () => {
+		frappe.call({
+			method: "eseller_suite.eseller_suite.doctype.amazon_stn_entry.amazon_stn_entry.retry_cancel_linked_documents",
+			args: { docname: frm.doc.name },
+			callback() {
+				show_progress_banner(frm, __("Queuing cancellation of linked documents..."), 0);
+			},
+		});
+	});
+}
+
 function hanlde_retry_btn(frm) {
 	if (frm.doc.docstatus === 0) {
 		frm.add_custom_button('Re-try Fetching', () => {
@@ -87,14 +105,14 @@ function handle_download_exception(frm) {
 }
 
 function call_and_setup_stn_progress(frm) {
-	if (frm.doc.docstatus === 1 && has_pending_rows(frm)) {
+	if (has_work_in_flight(frm)) {
 		frappe.call({
 			method: "eseller_suite.eseller_suite.doctype.amazon_stn_entry.amazon_stn_entry.get_stn_progress",
 			args: { docname: frm.doc.name },
 			callback(r) {
 				const progress = r.message;
 
-				if (!progress || progress.stage === "complete") {
+				if (!progress || progress.stage === "complete" || progress.stage === "cancel_complete") {
 					hide_progress_banner(frm);
 					return;
 				}
@@ -111,6 +129,12 @@ function call_and_setup_stn_progress(frm) {
 }
 
 const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+
+function has_work_in_flight(frm) {
+	if (frm.doc.docstatus === 1) return has_pending_rows(frm);
+	if (frm.doc.docstatus === 2) return !frm.doc.cancellation_completed;
+	return false;
+}
 
 function has_pending_rows(frm) {
 	const CANCEL_TYPES = ["FC_REMOVAL-Cancel", "EInvoiceCancel"];
@@ -155,6 +179,13 @@ function handle_progress_event(frm, data) {
 			break;
 		}
 
+		case "cancelling_entries": {
+			const batch_fraction = total_rows_in_batch ? current_row / total_rows_in_batch : 0;
+			const overall_pct = Math.round((((batch_index || 0) + batch_fraction) / (total_batches || 1)) * 100);
+			show_progress_banner(frm, `${__("Batch")} ${(batch_index ?? 0) + 1}/${total_batches}: ${message}`, overall_pct);
+			break;
+		}
+
 		case "row_failed": {
 			frappe.show_alert({ message: __(message), indicator: "orange" }, 5);
 			break;
@@ -175,6 +206,16 @@ function handle_progress_event(frm, data) {
 		case "complete": {
 			show_progress_banner(frm, message, 100);
 			frappe.show_alert({ message: __("STN processing complete"), indicator: "green" }, 5);
+			setTimeout(() => {
+				hide_progress_banner(frm);
+				frm.reload_doc();
+			}, 1500);
+			break;
+		}
+
+		case "cancel_complete": {
+			show_progress_banner(frm, message, 100);
+			frappe.show_alert({ message: __(message), indicator: "green" }, 5);
 			setTimeout(() => {
 				hide_progress_banner(frm);
 				frm.reload_doc();
