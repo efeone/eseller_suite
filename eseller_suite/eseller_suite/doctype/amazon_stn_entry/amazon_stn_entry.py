@@ -1,16 +1,17 @@
 # Copyright (c) 2026, efeone and contributors
 # For license information, please see license.txt
 import frappe
+from frappe import _
 from frappe.utils import flt
 from frappe.model.document import Document
 from frappe.utils.xlsxutils import make_xlsx
-from frappe.utils.background_jobs import get_queue, execute_job
+from frappe.utils.background_jobs import get_queue, execute_job, is_job_enqueued
 
 import os
 import re
 import csv
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timedelta
 from charset_normalizer import from_path
 
 from eseller_suite.eseller_suite.utils import add_bundle_components_to_stock_entry, get_bundle_items
@@ -32,8 +33,17 @@ class AmazonSTNEntry(Document):
 			docname=self.name,
 		)
 
-	def before_cancel(self):
-		self.cancel_linked_documents()
+	def on_cancel(self):
+		# Kickoff job waits for the cancel to commit, then builds the RQ chain
+		frappe.enqueue(
+			method="eseller_suite.eseller_suite.doctype.amazon_stn_entry.amazon_stn_entry.queue_stn_cancel_chain",
+			queue="short",
+			is_async=True,
+			enqueue_after_commit=True,
+			job_id=stn_cancel_job_id(self.name),
+			deduplicate=True,
+			docname=self.name,
+		)
 
 	def on_trash(self):
 		self.delete_linked_documents()
@@ -460,36 +470,129 @@ class AmazonSTNEntry(Document):
 				except Exception as e:
 					frappe.log_error(message=f"Failed to delete Purchase Invoice {row.purchase_invoice} linked to STN Entry {self.name}: {str(e)}", title="Amazon STN Entry Deletion Error")
 
-	def cancel_linked_documents(self):
-		"""Cancel linked Stock Entries when the STN Entry is Cancelled."""
-		# Cancel linked Entries
-		for row in self.stn_entries:
-			# Cancel linked Stock Entry
-			if row.stock_entry:
-				try:
-					se = frappe.get_doc("Stock Entry", row.stock_entry)
-					if se.docstatus == 1:
-						se.cancel()
-				except Exception as e:
-					frappe.log_error(message=f"Failed to Cancel Stock Entry {row.stock_entry} linked to STN Entry {self.name}: {str(e)}", title="Amazon STN Entry Cancel Error")
+	def get_documents_to_cancel(self):
+		"""
+			Return the still-submitted documents linked to this entry, de-duplicated
+			and ordered newest posting first.
 
-			# Cancel linked Sales Invoice
-			if row.sales_invoice:
-				try:
-					si = frappe.get_doc("Sales Invoice", row.sales_invoice)
-					if si.docstatus == 1:
-						si.cancel()
-				except Exception as e:
-					frappe.log_error(message=f"Failed to Cancel Sales Invoice {row.sales_invoice} linked to STN Entry {self.name}: {str(e)}", title="Amazon STN Entry Cancel Error")
+			Rows share documents: create_stock_entries_for_material_transfer reuses one
+			Stock Entry per invoice number, and check_duplicate_stn_entry copies
+			references between rows. So the child table holds far more references than
+			there are documents behind them.
 
-			# Cancel linked Purchase Invoice
-			if row.purchase_invoice:
-				try:
-					pi = frappe.get_doc("Purchase Invoice", row.purchase_invoice)
-					if pi.docstatus == 1:
-						pi.cancel()
-				except Exception as e:
-					frappe.log_error(message=f"Failed to Cancel Purchase Invoice {row.sales_invoice} linked to STN Entry {self.name}: {str(e)}", title="Amazon STN Entry Cancel Error")
+			The stock ledger has to unwind in reverse chronological order. Cancelling a
+			Purchase Invoice while a later Stock Entry still consumes the stock it
+			received throws NegativeStockError, so posting datetime decides the order
+			across all three doctypes rather than the doctype itself.
+		"""
+		targets = []
+
+		for doctype, fieldname in (
+			("Purchase Invoice", "purchase_invoice"),
+			("Sales Invoice", "sales_invoice"),
+			("Stock Entry", "stock_entry"),
+		):
+			names = {row.get(fieldname) for row in self.stn_entries if row.get(fieldname)}
+			if not names:
+				continue
+
+			submitted = frappe.get_all(
+				doctype,
+				filters={"name": ["in", list(names)], "docstatus": 1},
+				fields=["name", "posting_date", "posting_time", "creation"],
+			)
+			targets.extend(
+				{
+					"doctype": doctype,
+					"docname": doc.name,
+					"posting_date": doc.posting_date,
+					"posting_time": doc.posting_time,
+					"creation": doc.creation,
+				}
+				for doc in submitted
+			)
+
+		targets.sort(key=posting_sort_key, reverse=True)
+
+		return targets
+
+	def build_cancel_job_chain(self, batch_size=50, previous_remaining=None):
+		"""
+			Queue the cancellation of linked documents as a chain of batch jobs.
+
+			Cancelling them inline blows past the MariaDB lock wait timeout: one entry
+			can hold thousands of Stock Entries and Invoices, each reversing stock ledger
+			and GL entries, all in the single transaction of one web request. Batching
+			with a commit per batch keeps each lock window short.
+
+			previous_remaining carries the count left after the preceding pass, so the
+			final job can queue another pass while passes are still clearing documents.
+		"""
+		targets = self.get_documents_to_cancel()
+		total = len(targets)
+
+		frappe.db.set_value(self.doctype, self.name, "cancellation_completed", 0, update_modified=False)
+
+		if not total:
+			frappe.db.set_value(self.doctype, self.name, "cancellation_completed", 1, update_modified=False)
+			emit_stn_progress(self.name, {"stage": "cancel_complete", "message": "No linked documents to cancel"})
+			return
+
+		batches = [targets[i:i + batch_size] for i in range(0, total, batch_size)]
+		total_batches = len(batches)
+
+		site = frappe.local.site
+		user = frappe.session.user
+		queue = get_queue("long")
+
+		prev_job = None
+		for idx, batch in enumerate(batches):
+			prev_job = queue.enqueue_call(
+				execute_job,
+				timeout=6000,
+				kwargs=dict(
+					site=site,
+					method="eseller_suite.eseller_suite.doctype.amazon_stn_entry.amazon_stn_entry.process_stn_cancel_batch",
+					event=None,
+					job_name=f"stn_cancel_batch_{self.name}_{idx}",
+					kwargs=dict(
+						docname=self.name,
+						targets=batch,
+						batch_index=idx,
+						total_batches=total_batches,
+						user=user,
+					),
+					is_async=True,
+					retry=0,
+				),
+				depends_on=prev_job,  # None for the first batch → runs immediately
+			)
+
+		# Final job only runs once every batch job has finished successfully
+		queue.enqueue_call(
+			execute_job,
+			timeout=1200,
+			kwargs=dict(
+				site=site,
+				method="eseller_suite.eseller_suite.doctype.amazon_stn_entry.amazon_stn_entry.process_stn_cancel_complete",
+				event=None,
+				job_name=f"stn_cancel_complete_{self.name}",
+				kwargs=dict(docname=self.name, user=user, previous_remaining=total),
+				is_async=True,
+				retry=0,
+			),
+			depends_on=prev_job,
+		)
+
+		emit_stn_progress(
+			self.name,
+			{
+				"stage": "queued",
+				"total_batches": total_batches,
+				"message": f"Queued cancellation of {total} linked document(s) in {total_batches} batch job(s)",
+			},
+			user=user,
+		)
 
 	def handle_fc_removal_cancel(self, row):
 		"""
@@ -1212,6 +1315,136 @@ def process_stn_batch(docname, row_names, batch_index, total_batches, user=None)
 
 	frappe.db.commit()
 	emit(total_rows, f"Batch {batch_index + 1}/{total_batches} done", stage="batch_complete")
+
+
+def posting_sort_key(target):
+	"""
+		Sort key for cancel targets: posting datetime, then creation as a tie-break.
+
+		posting_date comes back as a date and posting_time as a timedelta, either of
+		which can be null on an odd record, so both are normalised to numbers.
+	"""
+	posting_date = target.get("posting_date")
+	posting_time = target.get("posting_time")
+	creation = target.get("creation")
+
+	return (
+		posting_date.toordinal() if posting_date else 0,
+		posting_time.total_seconds() if isinstance(posting_time, timedelta) else 0,
+		creation.timestamp() if creation else 0,
+	)
+
+
+def stn_cancel_job_id(docname):
+	return f"stn_cancel::{docname}"
+
+
+def queue_stn_cancel_chain(docname, batch_size=50):
+	doc = frappe.get_doc("Amazon STN Entry", docname)
+	doc.build_cancel_job_chain(batch_size)
+
+
+def process_stn_cancel_batch(docname, targets, batch_index, total_batches, user=None):
+	total_in_batch = len(targets)
+
+	def emit(current, message, stage="cancelling_entries"):
+		emit_stn_progress(
+			docname,
+			{
+				"stage": stage,
+				"batch_index": batch_index,
+				"total_batches": total_batches,
+				"current_row": current,
+				"total_rows_in_batch": total_in_batch,
+				"message": message,
+			},
+			user=user,
+		)
+
+	for idx, target in enumerate(targets, start=1):
+		doctype, name = target["doctype"], target["docname"]
+
+		# Re-check: an earlier batch, or an earlier STN Entry sharing this document,
+		# may already have cancelled it
+		if frappe.db.get_value(doctype, name, "docstatus") != 1:
+			continue
+
+		emit(idx, f"Cancelling {doctype}: {name}")
+		frappe.db.savepoint("before_linked_cancel")
+		try:
+			frappe.get_doc(doctype, name).cancel()
+		except Exception:
+			frappe.db.rollback(save_point="before_linked_cancel")
+			frappe.log_error(
+				title=f"STN cancel failed: {doctype} {name}",
+				message=frappe.get_traceback(),
+			)
+			emit(idx, f"Failed to cancel {doctype}: {name}", stage="row_failed")
+			continue
+
+	frappe.db.commit()
+	emit(total_in_batch, f"Cancel batch {batch_index + 1}/{total_batches} done")
+
+
+def process_stn_cancel_complete(docname, user=None, previous_remaining=None):
+	doc = frappe.get_doc("Amazon STN Entry", docname)
+	remaining = len(doc.get_documents_to_cancel())
+
+	if remaining:
+		# Cancelling can need several passes: a document that threw NegativeStockError
+		# because a later document still consumed its stock becomes cancellable once
+		# that later one is gone. Keep going while passes are still clearing documents.
+		if previous_remaining is None or remaining < previous_remaining:
+			emit_stn_progress(
+				docname,
+				{
+					"stage": "queued",
+					"message": f"{remaining} document(s) left, queuing another pass",
+				},
+				user=user,
+			)
+			doc.build_cancel_job_chain(previous_remaining=remaining)
+			return
+
+		emit_stn_progress(
+			docname,
+			{
+				"stage": "cancel_complete",
+				"message": f"{remaining} linked document(s) could not be cancelled. Check the Error Log, then re-try.",
+			},
+			user=user,
+		)
+		return
+
+	frappe.db.set_value("Amazon STN Entry", docname, "cancellation_completed", 1, update_modified=False)
+	emit_stn_progress(
+		docname,
+		{"stage": "cancel_complete", "message": "All linked documents cancelled"},
+		user=user,
+	)
+
+
+@frappe.whitelist()
+def retry_cancel_linked_documents(docname):
+	"""
+		Re-queue the cancel chain for a Cancelled entry whose linked documents
+		did not all make it. Safe to re-run: every target is re-checked for
+		docstatus == 1 before it is touched.
+	"""
+	frappe.has_permission("Amazon STN Entry", "cancel", doc=docname, throw=True)
+
+	if is_job_enqueued(stn_cancel_job_id(docname)):
+		frappe.throw(_("Cancellation is already in progress for {0}.").format(docname))
+
+	frappe.enqueue(
+		method="eseller_suite.eseller_suite.doctype.amazon_stn_entry.amazon_stn_entry.queue_stn_cancel_chain",
+		queue="short",
+		is_async=True,
+		job_id=stn_cancel_job_id(docname),
+		deduplicate=True,
+		docname=docname,
+	)
+	frappe.msgprint(_("Queued cancellation of the remaining linked documents."), alert=True, indicator="green")
 
 
 def emit_stn_progress(docname, payload, user=None):

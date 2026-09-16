@@ -54,6 +54,8 @@ def on_cancel(doc, method):
 		"Payment Ledger Entry",
 		"Serial and Batch Bundle",
 		"Amazon STN Entry",
+		# get_linked_docs() matches child tables on the child doctype, not the parent
+		"Amazon STN Entry Item",
 	)
 	if doc.is_return:
 		for item in doc.items:

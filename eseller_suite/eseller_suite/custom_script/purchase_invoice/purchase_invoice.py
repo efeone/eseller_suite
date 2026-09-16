@@ -48,6 +48,8 @@ def on_cancel(doc, method):
 		"Tax Withheld Vouchers",
 		"Serial and Batch Bundle",
 		"Amazon STN Entry",
+		# get_linked_docs() matches child tables on the child doctype, not the parent
+		"Amazon STN Entry Item",
 	)
 
 def set_bundle_diff_amount(doc):
