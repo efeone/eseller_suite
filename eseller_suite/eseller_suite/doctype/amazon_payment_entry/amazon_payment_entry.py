@@ -376,6 +376,9 @@ class AmazonPaymentEntry(Document):
 				company_rows[company].append(row)
 
 		created_jvs = []
+		journal_entry_series = frappe.db.get_single_value("eSeller Settings", "journal_entry_series")
+		if company_rows and not journal_entry_series:
+			frappe.throw(_("Please set Journal Entry Series in eSeller Settings"))
 
 		for company, rows in company_rows.items():
 			jv_doc = frappe.new_doc('Journal Entry')
@@ -385,6 +388,7 @@ class AmazonPaymentEntry(Document):
 			jv_doc.cheque_date = self.posting_date
 			jv_doc.cheque_no = self.name
 			jv_doc.title = "{0} - {1}".format(self.name, company)
+			jv_doc.naming_series = journal_entry_series
 
 			total_debit = 0
 			total_credit = 0

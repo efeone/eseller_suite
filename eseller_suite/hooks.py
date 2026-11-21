@@ -135,7 +135,10 @@ doc_events = {
 		"before_validate": "eseller_suite.eseller_suite.custom_script.sales_invoice.sales_invoice.before_validate",
 		"validate": "eseller_suite.eseller_suite.custom_script.sales_invoice.sales_invoice.validate",
 		"after_insert": "eseller_suite.eseller_suite.custom_script.sales_invoice.sales_invoice.after_insert",
-		"before_submit": "eseller_suite.eseller_suite.custom_script.sales_invoice.sales_invoice.before_submit",
+		"before_submit": [
+            "eseller_suite.eseller_suite.custom_script.sales_invoice.sales_invoice.before_submit",
+            "eseller_suite.eseller_suite.doctype.amazon_stn_entry.amazon_stn_entry.validate_amazon_invoice_total_on_submit",
+        ],
 		"on_submit": "eseller_suite.eseller_suite.custom_script.sales_invoice.sales_invoice.on_submit",
 		"on_cancel": "eseller_suite.eseller_suite.custom_script.sales_invoice.sales_invoice.on_cancel",
 		"on_trash": "eseller_suite.eseller_suite.custom_script.sales_invoice.sales_invoice.on_trash",
@@ -158,6 +161,7 @@ doc_events = {
 		"on_submit": "eseller_suite.eseller_suite.custom_script.purchase_invoice.purchase_invoice.on_submit",
 		"before_save": "eseller_suite.eseller_suite.custom_script.purchase_invoice.purchase_invoice.before_save",
 		"on_update_after_submit": "eseller_suite.eseller_suite.custom_script.purchase_invoice.purchase_invoice.on_update_after_submit",
+        "before_submit": "eseller_suite.eseller_suite.doctype.amazon_stn_entry.amazon_stn_entry.validate_amazon_invoice_total_on_submit"
 	},
 	'Product Bundle':{
         "after_insert": "eseller_suite.eseller_suite.custom_script.product_bundle.product_bundle.mark_item_as_bundle",
