@@ -7,7 +7,8 @@
  "engine": "InnoDB",
  "field_order": [
   "company",
-  "default_parent_warehouse"
+  "default_parent_warehouse",
+  "inter_company_income_account"
  ],
  "fields": [
   {
@@ -29,13 +30,20 @@
    "options": "Warehouse",
    "reqd": 1,
    "width": "4"
+  },
+  {
+   "fieldname": "inter_company_income_account",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Inter Company Income Account",
+   "options": "Account"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-02-11 15:26:55.928049",
+ "modified": "2026-11-21 15:38:56.941024",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "eSeller Parent Warehouse",

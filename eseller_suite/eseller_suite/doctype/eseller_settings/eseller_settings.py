@@ -49,7 +49,7 @@ def get_all_companies():
 	return frappe.get_all("Company", fields=["name"], order_by="name asc")
 
 @frappe.whitelist()
-def get_naming_series_options(doctype='Sales Invoice'):
+def get_naming_series_options(doctype):
 	'''
 		Returns a list of naming series options for a given doctype.
 	'''

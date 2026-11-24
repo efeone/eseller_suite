@@ -5,6 +5,7 @@ frappe.ui.form.on("eSeller Settings", {
 	refresh(frm) {
 		set_filters(frm);
 		set_sales_invoice_series(frm);
+        set_journal_entry_series(frm);
 		set_custom_buttons(frm);
 	},
 	allow_missing_warehouse_creation(frm) {
@@ -118,9 +119,21 @@ function default_account_filters(frm) {
 }
 
 function set_sales_invoice_series(frm) {
-	frappe.call('eseller_suite.eseller_suite.doctype.eseller_settings.eseller_settings.get_naming_series_options').then(r => {
-		frm.set_df_property('stn_sales_invoice_series', 'options', r.message.join("\n"));
-	})
+	frappe.call({
+		method: 'eseller_suite.eseller_suite.doctype.eseller_settings.eseller_settings.get_naming_series_options',
+		args: { doctype: 'Sales Invoice' },
+	}).then(r => {
+		frm.set_df_property('stn_sales_invoice_series', 'options', (r.message || []).join("\n"));
+	});
+}
+
+function set_journal_entry_series(frm) {
+	frappe.call({
+		method: 'eseller_suite.eseller_suite.doctype.eseller_settings.eseller_settings.get_naming_series_options',
+		args: { doctype: 'Journal Entry' },
+	}).then(r => {
+		frm.set_df_property('journal_entry_series', 'options', (r.message || []).join("\n"));
+	});
 }
 
 function set_custom_buttons(frm) {

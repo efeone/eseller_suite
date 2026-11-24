@@ -91,8 +91,12 @@ class AmazonFailedSyncRecord(Document):
 	def create_replaced_jv(self):
 		if self.payload and not self.replaced_jv and self.grand_total:
 			data = json.loads(self.payload)
+			journal_entry_series = frappe.db.get_single_value("eSeller Settings", "journal_entry_series")
+			if not journal_entry_series:
+				frappe.throw(_("Please set Journal Entry Series in eSeller Settings"))
 			jv_doc = frappe.new_doc('Journal Entry')
 			jv_doc.voucher_type = 'Journal Entry'
+			jv_doc.naming_series = journal_entry_series
 			jv_doc.posting_date = self.posting_date
 			jv_doc.user_remark = 'Adjustment Entry for Replaced Order'
 			jv_doc.amazon_order_id = self.amazon_order_id
@@ -127,8 +131,12 @@ class AmazonFailedSyncRecord(Document):
 			Adjustment JV in case of -ve orders, due to high charges and less invoice value
 		'''
 		data = json.loads(self.payload)
+		journal_entry_series = frappe.db.get_single_value("eSeller Settings", "journal_entry_series")
+		if not journal_entry_series:
+			frappe.throw(_("Please set Journal Entry Series in eSeller Settings"))
 		jv_doc = frappe.new_doc('Journal Entry')
 		jv_doc.voucher_type = 'Journal Entry'
+		jv_doc.naming_series = journal_entry_series
 		jv_doc.posting_date = self.posting_date
 		jv_doc.user_remark = 'Adjustment Entry for Replaced Order'
 		jv_doc.amazon_order_id = self.amazon_order_id

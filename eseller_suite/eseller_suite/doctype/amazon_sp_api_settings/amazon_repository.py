@@ -1435,6 +1435,7 @@ class AmazonRepository:
 						so.append("taxes", tds)
 
 				if not refunds:
+					journal_entry_series = frappe.db.get_single_value("eSeller Settings", "journal_entry_series")
 					for service_fee in charges_and_fees.get("service_fees"):
 						if service_fee:
 							mfn_postage_fee_account_head = frappe.db.get_value(
@@ -1454,8 +1455,11 @@ class AmazonRepository:
 								},
 							):
 								try:
+									if not journal_entry_series:
+										frappe.throw(_("Please set Journal Entry Series in eSeller Settings"))
 									jv_doc = frappe.new_doc("Journal Entry")
 									jv_doc.voucher_type = "Journal Entry"
+									jv_doc.naming_series = journal_entry_series
 									jv_doc.posting_date = so.transaction_date
 									jv_doc.user_remark = f"Amazon MFN Postage Fee for Order {so.amazon_order_id}"
 									jv_doc.amazon_order_id = so.amazon_order_id

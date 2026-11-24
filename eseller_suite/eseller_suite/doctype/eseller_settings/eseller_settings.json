@@ -20,6 +20,7 @@
   "opening_date",
   "column_break_dcwj",
   "default_mode_of_payment",
+  "journal_entry_series",
   "section_break_znhz",
   "column_break_lzak",
   "use_reserve_lines_in_amazon_payment_entry",
@@ -220,13 +221,19 @@
    "fieldtype": "Date",
    "label": "Opening Date",
    "reqd": 1
+  },
+  {
+   "description": "Naming series for auto created Journal Entry",
+   "fieldname": "journal_entry_series",
+   "fieldtype": "Select",
+   "label": "Journal Entry Series"
   }
  ],
  "hide_toolbar": 1,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-06-12 15:08:36.968657",
+ "modified": "2026-11-24 12:42:47.159812",
  "modified_by": "Administrator",
  "module": "eSeller Suite",
  "name": "eSeller Settings",

@@ -671,6 +671,7 @@ class AmazonSTNEntry(Document):
 			"gst_rate": tax_rate,
 			"disabled":0
 		}) or ""
+		income_account = get_stn_income_account(row.source_company)
 
 		if existing_invoice:
 			try:
@@ -729,7 +730,8 @@ class AmazonSTNEntry(Document):
 				"rate": flt(row.taxable_value) / flt(row.qty) if flt(row.qty) else 0,
 				"warehouse": row.source_warehouse,
 				"allow_zero_valuation_rate": 1,
-				"item_tax_template": item_tax_template
+				"item_tax_template": item_tax_template,
+				"income_account": income_account,
 			})
 
 			if igst_account:
@@ -1149,6 +1151,7 @@ def submit_transactions(stn_entry_name, user=None):
 					if stn_row.purchase_invoice:
 						si_doc.inter_company_invoice_reference = stn_row.purchase_invoice
 					si_doc.save(ignore_permissions=True)
+					validate_amazon_invoice_total(si_doc)
 					si_doc.submit()
 			except Exception as e:
 				frappe.db.rollback(save_point="before_si_submit")
@@ -1187,6 +1190,7 @@ def submit_transactions(stn_entry_name, user=None):
 				if pi_doc.docstatus == 0:
 					pi_doc.discount_amount = 0 #To trigger discount calculation
 					pi_doc.save(ignore_permissions=True)
+					validate_amazon_invoice_total(pi_doc)
 					pi_doc.submit()
 			except Exception as e:
 				frappe.db.rollback(save_point="before_pi_submit")
@@ -1316,6 +1320,48 @@ def process_stn_batch(docname, row_names, batch_index, total_batches, user=None)
 	frappe.db.commit()
 	emit(total_rows, f"Batch {batch_index + 1}/{total_batches} done", stage="batch_complete")
 
+def validate_amazon_invoice_total(doc, tolerance=1):
+	"""Grand total must match the Amazon invoice value."""
+	grand_total = flt(doc.grand_total, 2)
+	invoice_value = flt(doc.amazon_invoice_value, 2)
+	if abs(grand_total - invoice_value) > tolerance:
+		frappe.throw(
+			_("{0}: Grand Total {1} does not match Amazon Invoice Value {2}").format(
+				doc.doctype, grand_total, invoice_value
+			)
+		)
+
+def validate_amazon_invoice_total_on_submit(doc, method=None):
+	"""before_submit hook for Sales Invoice and Purchase Invoice"""
+	if not doc.get("amazon_invoice_id") or not flt(doc.get("amazon_invoice_value")):
+		return
+
+	# Only STN (inter-company) invoices
+	if doc.doctype == "Sales Invoice" and not doc.get("is_internal_customer"):
+		return
+	if doc.doctype == "Purchase Invoice" and not doc.get("is_internal_supplier"):
+		return
+
+	validate_amazon_invoice_total(doc)
+	
+def get_stn_income_account(company):
+	settings = frappe.get_single("eSeller Settings")
+
+	for row in settings.parent_warehouses:
+		if row.company == company:
+			if not row.inter_company_income_account:
+				frappe.throw(
+					f"Please set Inter Company Income Account for Company "
+					f"{company} in eSeller Settings > Parent Warehouses."
+				)
+
+			return row.inter_company_income_account
+
+	frappe.throw(
+		f"Company {company} is not configured in "
+		f"eSeller Settings > Parent Warehouses. "
+		f"Please configure the company and Inter Company Income Account."
+	)
 
 def posting_sort_key(target):
 	"""
