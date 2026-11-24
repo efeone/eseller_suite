@@ -102,7 +102,8 @@ function default_account_filters(frm) {
 		'shipping_charges_account',
 		'fulfilment_fee_refund_account',
 		'tds_reimbursement_account',
-		'fba_flex_weight_account'
+		'fba_flex_weight_account',
+        'inter_company_income_account'
 	];
 
 	account_fields.forEach(fieldname => {
