@@ -1347,19 +1347,19 @@ def validate_amazon_invoice_total_on_submit(doc, method=None):
 def get_stn_income_account(company):
 	settings = frappe.get_single("eSeller Settings")
 
-	for row in settings.parent_warehouses:
+	for row in settings.payment_accounts:
 		if row.company == company:
 			if not row.inter_company_income_account:
 				frappe.throw(
 					f"Please set Inter Company Income Account for Company "
-					f"{company} in eSeller Settings > Parent Warehouses."
+					f"{company} in eSeller Settings > Payment Accounts"
 				)
 
 			return row.inter_company_income_account
 
 	frappe.throw(
 		f"Company {company} is not configured in "
-		f"eSeller Settings > Parent Warehouses. "
+		f"eSeller Settings > Payment Accounts. "
 		f"Please configure the company and Inter Company Income Account."
 	)
 
